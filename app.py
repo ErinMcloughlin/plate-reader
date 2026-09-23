@@ -19,10 +19,13 @@ with col2:
 
 if ts_file is not None and qb_file is not None:
     try:
-        # Load and clean TapeStation Data
-        ts_df = pd.read_csv(ts_file)
+        # Load TapeStation Data with Latin1 encoding to safely bypass character issues (like µ symbols)
+        ts_df = pd.read_csv(ts_file, encoding='latin1')
         
-        # Isolate rows marked with '%cfDNA' comment flags (50-700 bp rows)
+        # Clean up column headers by removing weird whitespace or hidden characters
+        ts_df.columns = ts_df.columns.str.strip()
+        
+        # Isolate rows marked with '% of Total' info (focusing on %cfDNA rows)
         ts_cfdna = ts_df[ts_df['Region Comment'] == '%cfDNA'].copy()
         if ts_cfdna.empty:
             # Fallback if comment flags differ: grab every alternate row
@@ -30,8 +33,9 @@ if ts_file is not None and qb_file is not None:
             
         ts_cfdna = ts_cfdna.reset_index(drop=True)
 
-        # Load and clean Qubit Data
-        qb_df = pd.read_csv(qb_file)
+        # Load Qubit Data (using latin1 here as well just in case µ appears there too)
+        qb_df = pd.read_csv(qb_file, encoding='latin1')
+        qb_df.columns = qb_df.columns.str.strip()
         qb_df = qb_df.dropna(subset=['Original Sample Conc.']).reset_index(drop=True)
 
         # Cross-verify row pairing counts
@@ -50,7 +54,7 @@ if ts_file is not None and qb_file is not None:
             qubit_name = qb_df.loc[i, 'Sample Name']
             raw_qubit_conc = float(qb_df.loc[i, 'Original Sample Conc.'])
             
-            # 1. Calculate the raw concentration for this specific region (ng/uL)
+            # 1. Calculate the concentration for this specific region (ng/uL)
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
             
             # 2. Multiply by 50uL total volume to find total mass (ng) in the tube
@@ -94,4 +98,3 @@ if ts_file is not None and qb_file is not None:
         
     except Exception as e:
         st.error(f"Execution Error occurred processing data layouts: {e}")
-
