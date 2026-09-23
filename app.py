@@ -59,7 +59,7 @@ def find_qubit_id_col(df):
     return None
 
 # Helper function to process data strictly for dashboard view computations
-def process_data(ts_df_in, qb_df_in):
+def process_data(ts_df_in, qb_df_in, is_rerun_run=False):
     # Standardize column headers for reliable merge math without breaking raw copies
     ts_calc = ts_df_in.copy()
     ts_calc.columns = ts_calc.columns.str.strip()
@@ -83,7 +83,7 @@ def process_data(ts_df_in, qb_df_in):
         
     qb_calc = qb_calc.dropna(subset=['Original Sample Conc.'])
 
-        # Build the tracking array
+    # Build the tracking array
     processed_records = []
     
     for sample_id in all_ts_samples:
@@ -114,7 +114,7 @@ def process_data(ts_df_in, qb_df_in):
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
-                "Region Window": "No 50bp Region Found",
+                "Region Window": "No 100bp Region Found",
                 "TapeStation % of Total": 0.0,
                 "Raw Qubit (ng/µL)": raw_qubit,
                 "Calculated Region (ng/µL)": 0.0,
@@ -135,8 +135,8 @@ def process_data(ts_df_in, qb_df_in):
             if pct_of_total <= 60.0 or total_mass_ng <= 10.0:
                 qc_status = "FAIL"
             else:
-                # If it passes now but failed at baseline, flag it as RECOVERED
-                if (is_baseline_missing or baseline_failed) and (ts_df_in is not master_ts_df):
+                # ✅ CORRECTED LINE: Uses function parameter flag directly
+                if (is_baseline_missing or baseline_failed) and is_rerun_run:
                     qc_status = "RECOVERED"
                 else:
                     qc_status = "PASS"
@@ -153,6 +153,7 @@ def process_data(ts_df_in, qb_df_in):
             })
 
     return pd.DataFrame(processed_records)
+
 
 
 # ----------------------------------------------------
@@ -210,7 +211,8 @@ if ts_file_1 and qb_file_1:
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
 
         # Compute data strictly for screen visualization grid parameters
-        final_df = process_data(master_ts_df, master_qb_df)
+        final_df = process_data(master_ts_df, master_qb_df, is_rerun_run=is_rerun_mode)
+
 
         if final_df.empty:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
