@@ -331,21 +331,26 @@ if ts_file_1 and qb_file_1:
             st.stop()
 
         # ----------------------------------------------------
-        # 🔄 UPGRADED RECOVERY ASSESSMENT ENGINE
+        # 🔄 UPGRADED INTEGRATED RECOVERY ASSESSMENT ENGINE
         # ----------------------------------------------------
-        if is_rerun_mode and original_failures:
-            def adjust_for_recovery(row):
-                # Check if this specific sample ID dropped out during the initial run
-                if row['Sample Description'] in original_failures:
-                    # Case A: Sample successfully cleared baseline metrics AND stayed within safety limits
-                    if row['QC Status'] == 'PASS':
-                        return 'RECOVERED'
-                    # Case B: Sample cleared baseline failure BUT breached a study upper matrix threshold
-                    elif row['QC Status'] == 'ABOVE UPPER LIMIT':
-                        return 'RECOVERED (ABOVE LIMIT)'
-                return row['QC Status']
-                
-            final_df['QC Status'] = final_df.apply(adjust_for_recovery, axis=1)
+        # Initialize explicit baseline dropout flags across our structural matrix
+        final_df['Is Originally Failed'] = final_df['Sample Description'].isin(original_failures)
+        
+        # A sample counts as recovered if it was an original failure but now cleared baseline requirements
+        def calculate_recovery_flag(row):
+            if row['Is Originally Failed'] and row['QC Status'] in ['PASS', 'ABOVE UPPER LIMIT']:
+                return True
+            return False
+            
+        final_df['Is Recovered'] = final_df.apply(calculate_recovery_flag, axis=1)
+
+        # Force any sample that cleared baseline but is above limits to retain its ABOVE UPPER LIMIT status
+        def resolve_status_hierarchy(row):
+            if row['Is Originally Failed'] and row['QC Status'] == 'PASS':
+                return 'RECOVERED'
+            return row['QC Status']
+            
+        final_df['QC Status'] = final_df.apply(resolve_status_hierarchy, axis=1)
 
         # ----------------------------------------------------
         # CRITICAL VALIDATION CHECK
@@ -358,47 +363,52 @@ if ts_file_1 and qb_file_1:
             st.stop()
 
         # ----------------------------------------------------
-        # 3. DASHBOARD SUMMARY PANEL
+        # 3. DASHBOARD SUMMARY PANEL (EXPANDED TO 6 COLUMNS)
         # ----------------------------------------------------
         st.write("---")
         st.subheader("📊 Combined Run Analysis Summary" if is_rerun_mode else "📊 Initial Run Analysis Summary")
 
-        m1, m2, m3, m4, m5 = st.columns(5)
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
         m1.metric("Total Reported Samples", len(final_df))
+        
+        # Count normal passes vs samples that recovered into a normal pass status
         m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
-        m3.metric("🚀 Recovered Status", len(final_df[final_df['QC Status'] == "RECOVERED"]))
-        m4.metric("❌ Failed QC Check", len(final_df[final_df['QC Status'] == "FAIL"]))
-        m5.metric("⚠️ Above Upper Limit", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
+        m3.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
+        
+        # ✅ NEW METRIC CARD: Tracks samples matching both recovery and above upper limit thresholds
+        recovered_above_limit_count = len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")])
+        m4.metric("💥 Recovered (Above Limit)", recovered_above_limit_count)
+        
+        m5.metric("❌ Failed QC Check", len(final_df[final_df['QC Status'] == "FAIL"]))
+        m6.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
 
         # ----------------------------------------------------
-        # 4. INTERACTIVE VIEW DROPDOWN FILTER
+        # 4. INTERACTIVE VIEW DROPDOWN FILTER (DEDUPLICATED)
         # ----------------------------------------------------
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
             "Filter table view display parameters:", 
-            [
-                "Show All Samples", 
-                "Show Only PASS Samples", 
-                "Show Only RECOVERED Samples", 
-                "Show Only RECOVERED (ABOVE LIMIT) Samples", 
-                "Show Only FAIL Samples", 
-                "Show Only MISSING 100BP Samples", 
-                "Show Only ABOVE UPPER LIMIT Samples"
-            ]
+            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples", "Show Only ABOVE UPPER LIMIT Samples"]
         )
         
+        # Dual-Routing Mask Logic: Allows items to cross-populate views
         if status_filter == "Show Only PASS Samples":
             filtered_display = final_df[final_df['QC Status'] == "PASS"]
+            
         elif status_filter == "Show Only RECOVERED Samples":
-            filtered_display = final_df[final_df['QC Status'] == "RECOVERED"]
-        elif status_filter == "Show Only RECOVERED (ABOVE LIMIT) Samples":
-            filtered_display = final_df[final_df['QC Status'] == "RECOVERED (ABOVE LIMIT)"]
+            # ✅ DUAL ROUTING: Captures clean recoveries AND above-limit recoveries
+            filtered_display = final_df[(final_df['QC Status'] == "RECOVERED") | (final_df['Is Recovered'] == True)]
+            
         elif status_filter == "Show Only FAIL Samples":
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
+            
         elif status_filter == "Show Only MISSING 100BP Samples":
             filtered_display = final_df[final_df['QC Status'] == "MISSING 100BP"]
+            
         elif status_filter == "Show Only ABOVE UPPER LIMIT Samples":
+            # ✅ DUAL ROUTING: Captures standard above-limits AND recovered above-limits
             filtered_display = final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]
+            
         else:
             filtered_display = final_df
 
@@ -406,6 +416,7 @@ if ts_file_1 and qb_file_1:
         def color_qc_row(row):
             styles = [''] * len(row)
             qc_status = row['QC Status']
+            is_recovered_flag = row['Is Recovered']
             
             cols = list(row.index)
             status_idx = cols.index('QC Status') if 'QC Status' in cols else -1
@@ -420,20 +431,21 @@ if ts_file_1 and qb_file_1:
                     styles[status_idx] = 'background-color: #ccffcc; color: #006600; font-weight: bold;'
                 elif qc_status == 'RECOVERED':
                     styles[status_idx] = 'background-color: #e6f7ff; color: #0050b3; font-weight: bold;'
-                # ✅ NEW STYLE: Clean Slate-Purple for Recovered Samples that are Above Limit
-                elif qc_status == 'RECOVERED (ABOVE LIMIT)':
-                    styles[status_idx] = 'background-color: #f3e5f5; color: #4a148c; font-weight: bold;'
                 elif qc_status == 'MISSING 100BP':
                     styles[status_idx] = 'background-color: #ffe6cc; color: #cc6600; font-weight: bold;'
                 elif qc_status == 'ABOVE UPPER LIMIT':
-                    styles[status_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
+                    # Visual Indicator: Blend purple text onto amber background if the sample recovered but breached upper limits
+                    if is_recovered_flag:
+                        styles[status_idx] = 'background-color: #fff2cc; color: #4a148c; font-weight: bold; border: 2px solid #4a148c;'
+                    else:
+                        styles[status_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
 
             if "HALE" in selected_study:
                 qubit_limit, ts_limit = 1.318, 89.69
             else:
                 qubit_limit, ts_limit = 3.68, 92.89
 
-            # Highlight the exact numeric cell breach orange regardless of recovery state
+            # Highlight specific cell matrices if breaching thresholds
             if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > qubit_limit:
                 styles[qubit_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
 
