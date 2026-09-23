@@ -69,34 +69,34 @@ def process_data(ts_df_in, qb_df_in):
             
         # Isolate rows for this specific sample
         sample_ts_rows = ts_calc[ts_calc['Sample Description'] == sample_id]
-        # Look for the exact 50bp region row
-        region_50_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 50]
+        # Look for the exact 100bp region row
+        region_100_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 100]
         # Look for matching Qubit entry
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
         # Grab well ID from any available row for this sample
         well_id = sample_ts_rows['WellId'].iloc[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
         
-        # FLAG CONDITIONAL: If the sample exists but lacks a 50bp row entry
-        if region_50_row.empty:
+        # FLAG CONDITIONAL: If the sample exists but lacks a 100bp row entry
+        if region_100_row.empty:
             raw_qubit = float(qubit_row['Original Sample Conc.'].iloc[0]) if not qubit_row.empty else 0.0
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
-                "Region Window": "No 50bp Region Found",
+                "Region Window": "No 100bp Region Found",
                 "TapeStation % of Total": 0.0,
                 "Raw Qubit (ng/µL)": raw_qubit,
                 "Calculated Region (ng/µL)": 0.0,
-                "Total Regional Mass (ng in 50µL)": 0.0,
-                "QC Status": "MISSING 50BP"
+                "Total Regional Mass (ng in 100µL)": 0.0,
+                "QC Status": "MISSING 100BP"
             })
             continue
 
-        # If it has the 50bp row, check if it also matches a Qubit record
+        # If it has the 100bp row, check if it also matches a Qubit record
         if not qubit_row.empty:
-            pct_of_total = float(region_50_row['% of Total'].iloc[0])
+            pct_of_total = float(region_100_row['% of Total'].iloc[0])
             raw_qubit_conc = float(qubit_row['Original Sample Conc.'].iloc[0])
-            to_bp = region_50_row['To [bp]'].iloc[0]
+            to_bp = region_100_row['To [bp]'].iloc[0]
             
             # Core Math Formulas
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
@@ -107,11 +107,11 @@ def process_data(ts_df_in, qb_df_in):
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
-                "Region Window": f"50-{to_bp} bp",
+                "Region Window": f"100-{to_bp} bp",
                 "TapeStation % of Total": round(pct_of_total, 2),
                 "Raw Qubit (ng/µL)": raw_qubit_conc,
                 "Calculated Region (ng/µL)": round(calculated_ng_ul, 4),
-                "Total Regional Mass (ng in 50µL)": round(total_mass_ng, 2),
+                "Total Regional Mass (ng in 100µL)": round(total_mass_ng, 2),
                 "QC Status": qc_status
             })
 
@@ -148,16 +148,16 @@ if ts_file_1 and qb_file_1:
             raw_ts_rerun.columns = raw_ts_rerun.columns.str.strip()
             raw_qb_rerun.columns = raw_qb_rerun.columns.str.strip()
 
-            # Overwrite TapeStation Master Sheet records where From [bp] == 50
+            # Overwrite TapeStation Master Sheet records where From [bp] == 100
             raw_ts_rerun['From [bp]'] = pd.to_numeric(raw_ts_rerun['From [bp]'], errors='coerce')
-            ts_rerun_filtered = raw_ts_rerun[raw_ts_rerun['From [bp]'] == 50]
+            ts_rerun_filtered = raw_ts_rerun[raw_ts_rerun['From [bp]'] == 100]
             
             for _, rerun_row in ts_rerun_filtered.iterrows():
                 sample_id = str(rerun_row['Sample Description']).strip()
                 new_pct = rerun_row['% of Total']
                 
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
-                          (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 50)
+                          (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
 
@@ -190,13 +190,13 @@ if ts_file_1 and qb_file_1:
         t_count = len(final_df)
         p_count = len(final_df[final_df['QC Status'] == "PASS"])
         f_count = len(final_df[final_df['QC Status'] == "FAIL"])
-        m_count = len(final_df[final_df['QC Status'] == "MISSING 50BP"])
+        m_count = len(final_df[final_df['QC Status'] == "MISSING 100BP"])
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Reported Samples", t_count)
         m2.metric("✅ Passed QC Check", p_count)
         m3.metric("❌ Failed QC Check", f_count, delta=f"-{f_count}" if f_count > 0 else None, delta_color="inverse")
-        m4.metric("⚠️ Missing 50bp Regions", m_count)
+        m4.metric("⚠️ Missing 100bp Regions", m_count)
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
@@ -204,15 +204,15 @@ if ts_file_1 and qb_file_1:
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
             "Filter table view display parameters:", 
-            ["Show All Samples", "Show Only PASS Samples", "Show Only FAIL Samples", "Show Only MISSING 50BP Samples"]
+            ["Show All Samples", "Show Only PASS Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples"]
         )
         
         if status_filter == "Show Only PASS Samples":
             filtered_display = final_df[final_df['QC Status'] == "PASS"]
         elif status_filter == "Show Only FAIL Samples":
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
-        elif status_filter == "Show Only MISSING 50BP Samples":
-            filtered_display = final_df[final_df['QC Status'] == "MISSING 50BP"]
+        elif status_filter == "Show Only MISSING 100BP Samples":
+            filtered_display = final_df[final_df['QC Status'] == "MISSING 100BP"]
         else:
             filtered_display = final_df
 
@@ -222,7 +222,7 @@ if ts_file_1 and qb_file_1:
                 return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
             elif val == 'PASS':
                 return 'background-color: #ccffcc; color: #006600; font-weight: bold'
-            elif val == 'MISSING 50BP':
+            elif val == 'MISSING 100BP':
                 return 'background-color: #ffe6cc; color: #cc6600; font-weight: bold'
             return ''
 
