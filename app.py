@@ -92,7 +92,7 @@ def process_data(ts_df_in, qb_df_in):
             
         # Isolate rows for this specific sample
         sample_ts_rows = ts_calc[ts_calc['Sample Description'] == sample_id]
-        region_50_row = sample_ts_rows[ts_calc['From [bp]'] == 100]
+        region_100_row = sample_ts_rows[ts_calc['From [bp]'] == 100]
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
         well_id = sample_ts_rows['WellId'].values[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
