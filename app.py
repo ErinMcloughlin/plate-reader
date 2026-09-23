@@ -330,13 +330,23 @@ if ts_file_1 and qb_file_1:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
             st.stop()
 
-        # Dynamic Recovery Assessment
+        # ----------------------------------------------------
+        # 🔄 UPGRADED RECOVERY ASSESSMENT ENGINE
+        # ----------------------------------------------------
         if is_rerun_mode and original_failures:
             def adjust_for_recovery(row):
-                if row['Sample Description'] in original_failures and row['QC Status'] == 'PASS':
-                    return 'RECOVERED'
+                # Check if this specific sample ID dropped out during the initial run
+                if row['Sample Description'] in original_failures:
+                    # Case A: Sample successfully cleared baseline metrics AND stayed within safety limits
+                    if row['QC Status'] == 'PASS':
+                        return 'RECOVERED'
+                    # Case B: Sample cleared baseline failure BUT breached a study upper matrix threshold
+                    elif row['QC Status'] == 'ABOVE UPPER LIMIT':
+                        return 'RECOVERED (ABOVE LIMIT)'
                 return row['QC Status']
+                
             final_df['QC Status'] = final_df.apply(adjust_for_recovery, axis=1)
+
         # ----------------------------------------------------
         # CRITICAL VALIDATION CHECK
         # ----------------------------------------------------
@@ -366,13 +376,23 @@ if ts_file_1 and qb_file_1:
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
             "Filter table view display parameters:", 
-            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples", "Show Only ABOVE UPPER LIMIT Samples"]
+            [
+                "Show All Samples", 
+                "Show Only PASS Samples", 
+                "Show Only RECOVERED Samples", 
+                "Show Only RECOVERED (ABOVE LIMIT) Samples", 
+                "Show Only FAIL Samples", 
+                "Show Only MISSING 100BP Samples", 
+                "Show Only ABOVE UPPER LIMIT Samples"
+            ]
         )
         
         if status_filter == "Show Only PASS Samples":
             filtered_display = final_df[final_df['QC Status'] == "PASS"]
         elif status_filter == "Show Only RECOVERED Samples":
             filtered_display = final_df[final_df['QC Status'] == "RECOVERED"]
+        elif status_filter == "Show Only RECOVERED (ABOVE LIMIT) Samples":
+            filtered_display = final_df[final_df['QC Status'] == "RECOVERED (ABOVE LIMIT)"]
         elif status_filter == "Show Only FAIL Samples":
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
         elif status_filter == "Show Only MISSING 100BP Samples":
@@ -399,7 +419,10 @@ if ts_file_1 and qb_file_1:
                 elif qc_status == 'PASS':
                     styles[status_idx] = 'background-color: #ccffcc; color: #006600; font-weight: bold;'
                 elif qc_status == 'RECOVERED':
-                    styles[styles.index('') if '' in styles else status_idx] = 'background-color: #e6f7ff; color: #0050b3; font-weight: bold;'
+                    styles[status_idx] = 'background-color: #e6f7ff; color: #0050b3; font-weight: bold;'
+                # ✅ NEW STYLE: Clean Slate-Purple for Recovered Samples that are Above Limit
+                elif qc_status == 'RECOVERED (ABOVE LIMIT)':
+                    styles[status_idx] = 'background-color: #f3e5f5; color: #4a148c; font-weight: bold;'
                 elif qc_status == 'MISSING 100BP':
                     styles[status_idx] = 'background-color: #ffe6cc; color: #cc6600; font-weight: bold;'
                 elif qc_status == 'ABOVE UPPER LIMIT':
@@ -410,7 +433,7 @@ if ts_file_1 and qb_file_1:
             else:
                 qubit_limit, ts_limit = 3.68, 92.89
 
-            # Highlight specific cell matrices if breaching thresholds
+            # Highlight the exact numeric cell breach orange regardless of recovery state
             if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > qubit_limit:
                 styles[qubit_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
 
@@ -426,6 +449,7 @@ if ts_file_1 and qb_file_1:
             filtered_display.style.apply(color_qc_row, axis=1), 
             use_container_width=True
         )
+
 
         # ----------------------------------------------------
         # 5. EXPORT FORMAT GENERATION SYSTEM
