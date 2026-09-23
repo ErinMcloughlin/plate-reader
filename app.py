@@ -158,7 +158,7 @@ def process_data(ts_df_in, qb_df_in):
 
             # Safely extract Average Size scalar value from the array
             try:
-                avg_size_val = region_100_row['Average Size [bp]'].values
+                avg_size_val = region_100_row['Average Size [bp]'].values[0]
                 avg_size = float(avg_size_val) if pd.notna(avg_size_val) and str(avg_size_val).strip() != "" else 0.0
             except:
                 avg_size = 0.0
