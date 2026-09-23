@@ -121,7 +121,7 @@ def process_data(ts_df_in, qb_df_in):
         well_id = sample_ts_rows['WellId'].values if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
         
         if region_100_row.empty:
-            raw_qubit = float(qubit_row['Original Sample Conc.'].values) if not qubit_row.empty else 0.0
+            raw_qubit = float(qubit_row['Original Sample Conc.'].values[0]) if not qubit_row.empty else 0.0
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
@@ -137,13 +137,13 @@ def process_data(ts_df_in, qb_df_in):
 
         if not qubit_row.empty:
             try:
-                pct_val = region_100_row['% of Total'].values
+                pct_val = region_100_row['% of Total'].values[0]
                 pct_of_total = float(pct_val) if pd.notna(pct_val) and str(pct_val).strip() != "" else 0.0
             except:
                 pct_of_total = 0.0
                 
-            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values)
-            to_bp = region_100_row['To [bp]'].values
+            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values[0])
+            to_bp = region_100_row['To [bp]'].values[0]
             
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
             total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
