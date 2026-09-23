@@ -18,7 +18,7 @@ with st.container(border=True):
         expected_samples_count = st.number_input(
             "Expected Unique Samples:",
             min_value=1,
-            value=10,  # Setting default to 10 prevents immediate 0 errors on load
+            value=1,  # Setting default to 10 prevents immediate 0 errors on load
             step=1,
             help="The analytical pipeline will gatekeep processing until your verified file rows match this value exactly."
         )
