@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="NGS Library Multi-Run Hub", page_icon="🧬", layout="wide")
 # ----------------------------------------------------
-# 1. USER INPUTS & STUDY THRESHOLDS LAYOUT
+# 1. USER INPUTS & STUDY THRESHOLDS LAYOUT OLD
 # ----------------------------------------------------
 with st.container(border=True):
     st.markdown("### 📋 Run Parameters & Study Quality Gates")
