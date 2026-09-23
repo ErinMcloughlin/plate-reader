@@ -3,6 +3,14 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="NGS Library Multi-Run Hub", page_icon="🧬", layout="wide")
+st.subheader("📋 Sample Run Constraints")
+
+expected_samples_count = st.number_input(
+    "Enter the exact number of unique samples expected for this run:",
+    min_value=1,
+    value=10,
+    step=1
+)
 
 st.title("🧬 Alphanumeric Sample ID Matching & Smart Rerun Filter")
 st.write("Upload your data logs below. If a rerun is needed, uploading all 4 files will automatically replace initial failures with updated data.")
