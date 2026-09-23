@@ -11,7 +11,7 @@ st.write("Upload your data logs below. If a rerun is needed, uploading all 4 fil
 TOTAL_VOLUME_UL = 50.0
 
 # ----------------------------------------------------
-# 1. UI UPLOADER LAYOUT (Kept Exactly the Same)
+# 1. UI UPLOADER LAYOUT
 # ----------------------------------------------------
 st.subheader("📁 Data Log Inputs")
 col1, col2 = st.columns(2)
@@ -41,10 +41,12 @@ def process_data(ts_df_in, qb_df_in):
     ts_calc = ts_df_in.copy()
     ts_calc.columns = ts_calc.columns.str.strip()
     ts_calc['Sample Description'] = ts_calc['Sample Description'].astype(str).str.strip()
-    
     ts_calc['From [bp]'] = pd.to_numeric(ts_calc['From [bp]'], errors='coerce')
-    ts_filtered = ts_calc[ts_calc['From [bp]'] == 50].copy()
+    
+    # Identify ALL unique samples present in the TapeStation file to check for completeness
+    all_ts_samples = ts_calc['Sample Description'].dropna().unique()
 
+    # Read Qubit
     qb_calc = qb_df_in.copy()
     qb_calc.columns = qb_calc.columns.str.strip()
     
@@ -58,31 +60,62 @@ def process_data(ts_df_in, qb_df_in):
         
     qb_calc = qb_calc.dropna(subset=['Original Sample Conc.'])
 
-    merged = pd.merge(ts_filtered, qb_calc, on='Sample Description', how='inner')
-    if merged.empty:
-        return pd.DataFrame()
-
-    merged['% of Total'] = pd.to_numeric(merged['% of Total'], errors='coerce')
-    merged['Original Sample Conc.'] = pd.to_numeric(merged['Original Sample Conc.'], errors='coerce')
+    # Build the tracking array
+    processed_records = []
     
-    merged['Calculated Region (ng/µL)'] = merged['Original Sample Conc.'] * (merged['% of Total'] / 100.0)
-    merged['Total Regional Mass (ng in 50µL)'] = merged['Calculated Region (ng/µL)'] * TOTAL_VOLUME_UL
+    for sample_id in all_ts_samples:
+        if not sample_id or sample_id == 'nan':
+            continue
+            
+        # Isolate rows for this specific sample
+        sample_ts_rows = ts_calc[ts_calc['Sample Description'] == sample_id]
+        # Look for the exact 50bp region row
+        region_50_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 50]
+        # Look for matching Qubit entry
+        qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
+        
+        # Grab well ID from any available row for this sample
+        well_id = sample_ts_rows['WellId'].iloc[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
+        
+        # FLAG CONDITIONAL: If the sample exists but lacks a 50bp row entry
+        if region_50_row.empty:
+            raw_qubit = float(qubit_row['Original Sample Conc.'].iloc[0]) if not qubit_row.empty else 0.0
+            processed_records.append({
+                "Well ID": well_id,
+                "Sample Description": sample_id,
+                "Region Window": "No 50bp Region Found",
+                "TapeStation % of Total": 0.0,
+                "Raw Qubit (ng/µL)": raw_qubit,
+                "Calculated Region (ng/µL)": 0.0,
+                "Total Regional Mass (ng in 50µL)": 0.0,
+                "QC Status": "MISSING 50BP"
+            })
+            continue
 
-    merged['QC Status'] = merged.apply(
-        lambda r: "FAIL" if (r['% of Total'] <= 60.0 or r['Total Regional Mass (ng in 50µL)'] <= 10.0) else "PASS", 
-        axis=1
-    )
+        # If it has the 50bp row, check if it also matches a Qubit record
+        if not qubit_row.empty:
+            pct_of_total = float(region_50_row['% of Total'].iloc[0])
+            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].iloc[0])
+            to_bp = region_50_row['To [bp]'].iloc[0]
+            
+            # Core Math Formulas
+            calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
+            total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
+            
+            qc_status = "FAIL" if (pct_of_total <= 60.0 or total_mass_ng <= 10.0) else "PASS"
+            
+            processed_records.append({
+                "Well ID": well_id,
+                "Sample Description": sample_id,
+                "Region Window": f"50-{to_bp} bp",
+                "TapeStation % of Total": round(pct_of_total, 2),
+                "Raw Qubit (ng/µL)": raw_qubit_conc,
+                "Calculated Region (ng/µL)": round(calculated_ng_ul, 4),
+                "Total Regional Mass (ng in 50µL)": round(total_mass_ng, 2),
+                "QC Status": qc_status
+            })
 
-    return pd.DataFrame({
-        "Well ID": merged['WellId'] if 'WellId' in merged.columns else range(1, len(merged)+1),
-        "Sample Description": merged['Sample Description'],
-        "Region Window": "50-" + merged['To [bp]'].astype(str) + " bp",
-        "TapeStation % of Total": merged['% of Total'].round(2),
-        "Raw Qubit (ng/µL)": merged['Original Sample Conc.'],
-        "Calculated Region (ng/µL)": merged['Calculated Region (ng/µL)'].round(4),
-        "Total Regional Mass (ng in 50µL)": merged['Total Regional Mass (ng in 50µL)'].round(2),
-        "QC Status": merged['QC Status']
-    })
+    return pd.DataFrame(processed_records)
 
 # ----------------------------------------------------
 # 2. DATA MERGING PIPELINE
@@ -146,7 +179,7 @@ if ts_file_1 and qb_file_1:
             st.stop()
 
         # ----------------------------------------------------
-        # 3. DASHBOARD SUMMARY PANEL (Kept Exactly the Same)
+        # 3. DASHBOARD SUMMARY PANEL
         # ----------------------------------------------------
         st.write("---")
         if is_rerun_mode:
@@ -157,45 +190,52 @@ if ts_file_1 and qb_file_1:
         t_count = len(final_df)
         p_count = len(final_df[final_df['QC Status'] == "PASS"])
         f_count = len(final_df[final_df['QC Status'] == "FAIL"])
+        m_count = len(final_df[final_df['QC Status'] == "MISSING 50BP"])
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Reported Samples", t_count)
         m2.metric("✅ Passed QC Check", p_count)
         m3.metric("❌ Failed QC Check", f_count, delta=f"-{f_count}" if f_count > 0 else None, delta_color="inverse")
-        m4.metric("Avg Tube Mass Yield", f"{final_df['Total Regional Mass (ng in 50µL)'].mean():.2f} ng")
+        m4.metric("⚠️ Missing 50bp Regions", m_count)
 
         # ----------------------------------------------------
-        # 4. INTERACTIVE VIEW DROPDOWN FILTER (Kept Exactly the Same)
+        # 4. INTERACTIVE VIEW DROPDOWN FILTER
         # ----------------------------------------------------
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
             "Filter table view display parameters:", 
-            ["Show All Samples", "Show Only PASS Samples", "Show Only FAIL Samples"]
+            ["Show All Samples", "Show Only PASS Samples", "Show Only FAIL Samples", "Show Only MISSING 50BP Samples"]
         )
         
-        if status_filter == "Show Only PASS Samples":
-            filtered_display = final_df[final_df['QC Status'] == "PASS"]
         elif status_filter == "Show Only FAIL Samples":
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
+        elif status_filter == "Show Only MISSING 50BP Samples":
+            filtered_display = final_df[final_df['QC Status'] == "MISSING 50BP"]
         else:
             filtered_display = final_df
 
+        # Apply colorful background highlights to cells dynamically
         def color_qc(val):
-            return 'background-color: #ffcccc; color: #cc0000; font-weight: bold' if val == 'FAIL' else 'background-color: #ccffcc; color: #006600; font-weight: bold'
+            if val == 'FAIL':
+                return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
+            elif val == 'PASS':
+                return 'background-color: #ccffcc; color: #006600; font-weight: bold'
+            elif val == 'MISSING 50BP':
+                return 'background-color: #ffe6cc; color: #cc6600; font-weight: bold'
+            return ''
 
         st.dataframe(
-            filtered_display.style.map(color_qc, subset=['QC Status']), 
+            filtered_display.style.map(color_qc, subset=['QC Status']),
             use_container_width=True
         )
 
         # ----------------------------------------------------
-        # 5. NEW EXPORT FORMAT GENERATION SYSTEM
+        # 5. EXPORT FORMAT GENERATION SYSTEM
         # ----------------------------------------------------
         st.write("---")
         st.subheader("📥 Download Modified Instrument Files")
         st.info("These files maintain the exact headers and layout rows of your first uploaded files. If reruns were provided, the data is integrated directly into them.")
 
-        # Re-pack raw files back to string csv formats using memory string buffers
         ts_buffer = io.StringIO()
         master_ts_df.to_csv(ts_buffer, index=False)
         ts_csv_bytes = ts_buffer.getvalue()
@@ -205,6 +245,7 @@ if ts_file_1 and qb_file_1:
         qb_csv_bytes = qb_buffer.getvalue()
 
         dl_col1, dl_col2 = st.columns(2)
+        
         with dl_col1:
             st.download_button(
                 label="📥 Download Updated TapeStation File",
@@ -225,5 +266,3 @@ if ts_file_1 and qb_file_1:
 
     except Exception as e:
         st.error(f"Processing Error: {e}")
-
-
