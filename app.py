@@ -138,7 +138,7 @@ def process_data(ts_df_in, qb_df_in):
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
             total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
             
-            # Dynamic study metrics upper limits
+            # --- STUDY UPPER LIMIT CONTROL EVALUATIONS ---
             if selected_study == "HALE":
                 qubit_limit = 1.318
                 tapestation_limit = 89.69
@@ -146,12 +146,22 @@ def process_data(ts_df_in, qb_df_in):
                 qubit_limit = 3.68
                 tapestation_limit = 92.89
 
+            # Safely extract Average Size scalar value from the array
+            try:
+                avg_size_val = region_100_row['Average Size [bp]'].values[0]
+                avg_size = float(avg_size_val) if pd.notna(avg_size_val) and str(avg_size_val).strip() != "" else 0.0
+            except:
+                avg_size = 0.0
+
+            # Check if values breach upper limits (including your new >350 bp limit)
             is_above_qubit = raw_qubit_conc > qubit_limit
             is_above_tapestation = pct_of_total > tapestation_limit
+            is_above_size = avg_size > 350.0
 
+            # Determine Active QC Status Hierarchy
             if pct_of_total <= 60.0 or total_mass_ng <= 10.0:
                 qc_status = "FAIL"
-            elif is_above_qubit or is_above_tapestation:
+            elif is_above_qubit or is_above_tapestation or is_above_size:
                 qc_status = "ABOVE UPPER LIMIT"
             else:
                 qc_status = "PASS"
@@ -160,12 +170,14 @@ def process_data(ts_df_in, qb_df_in):
                 "Well ID": well_id,
                 "Sample Description": sample_id,
                 "Region Window": f"100-{to_bp} bp",
+                "Average Size [bp]": round(avg_size, 1),  # Added to display column matrix safely
                 "TapeStation % of Total": round(pct_of_total, 2),
                 "Raw Qubit (ng/µL)": raw_qubit_conc,
                 "Calculated Region (ng/µL)": round(calculated_ng_ul, 4),
                 "Total Regional Mass (ng in 50µL)": round(total_mass_ng, 2),
                 "QC Status": qc_status
             })
+
 
     return pd.DataFrame(processed_records)
 
