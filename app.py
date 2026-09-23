@@ -4,14 +4,31 @@ import io
 
 st.set_page_config(page_title="NGS Library Multi-Run Hub", page_icon="🧬", layout="wide")
 st.subheader("📋 Sample Run Constraints")
-
-expected_samples_count = st.number_input(
-    "Enter the exact number of unique samples expected for this run:",
-    min_value=1,
-    value=10,
-    step=1
-)
-
+# ----------------------------------------------------
+# 1. USER INPUTS & FILE UPLOADER LAYOUT
+# ----------------------------------------------------
+# Wrap the constraint in a clean card container block
+with st.container(border=True):
+    st.markdown("### 📋 Run Parameters & Validation Setup")
+    
+    # Use columns to keep the width concise and aligned
+    input_col, info_col = st.columns([1, 2])
+    
+    with input_col:
+        expected_samples_count = st.number_input(
+            "Expected Unique Samples:",
+            min_value=1,
+            value=10,  # Setting default to 10 prevents immediate 0 errors on load
+            step=1,
+            help="The analytical pipeline will gatekeep processing until your verified file rows match this value exactly."
+        )
+        
+    with info_col:
+        st.markdown("<br>", unsafe_allow_html=True) # Simple vertical spacer alignment
+        st.caption(
+            "💡 **Quality Gate:** This value checks unique entries in your `Sample Description` log metrics. "
+            "Downstream compilation panels and instrument file exporter download triggers remain locked until satisfied."
+        )
 st.title("🧬 Alphanumeric Sample ID Matching & Smart Rerun Filter")
 st.write("Upload your data logs below. If a rerun is needed, uploading all 4 files will automatically replace initial failures with updated data.")
 
