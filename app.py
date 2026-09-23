@@ -218,6 +218,36 @@ if ts_file_1 and qb_file_1:
         is_rerun_mode = False
         audit_trail_log = []
 
+# ----------------------------------------------------
+# 2. DATA MERGING & VERIFICATION PIPELINE
+# ----------------------------------------------------
+if ts_file_1 and qb_file_1:
+    try:
+        master_ts_df = pd.read_csv(ts_file_1, encoding='latin1')
+        master_qb_df = pd.read_csv(qb_file_1, encoding='latin1')
+
+        # Compute initial run baseline failures to register historic dropouts
+        baseline_df = process_data(master_ts_df, master_qb_df)
+        
+        original_failures = []
+        if not baseline_df.empty:
+            original_failures = baseline_df[
+                baseline_df['QC Status'].isin(['FAIL', 'MISSING 100BP'])
+            ]['Sample Description'].tolist()
+
+        ts_clean_cols = master_ts_df.columns.str.strip()
+        ts_desc_idx = list(ts_clean_cols).index('Sample Description') if 'Sample Description' in ts_clean_cols else None
+        ts_from_idx = list(ts_clean_cols).index('From [bp]') if 'From [bp]' in ts_clean_cols else None
+        ts_pct_idx = list(ts_clean_cols).index('% of Total') if '% of Total' in ts_clean_cols else None
+
+        qb_clean_cols = master_qb_df.columns.str.strip()
+        qb_id_col_raw = find_qubit_id_col(master_qb_df)
+        qb_id_idx = list(master_qb_df.columns).index(qb_id_col_raw) if qb_id_col_raw else None
+        qb_conc_idx = list(qb_clean_cols).index('Original Sample Conc.') if 'Original Sample Conc.' in qb_clean_cols else None
+
+        is_rerun_mode = False
+        audit_trail_log = []
+
         # ----------------------------------------------------
         # ROUND 2 PROCESSING (RERUN 1)
         # ----------------------------------------------------
@@ -239,7 +269,8 @@ if ts_file_1 and qb_file_1:
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
-                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values
+                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
+                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
                     audit_trail_log.append({
@@ -258,7 +289,8 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values
+                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
+                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
                     audit_trail_log.append({
@@ -291,7 +323,8 @@ if ts_file_1 and qb_file_1:
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
-                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values
+                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
+                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
                     audit_trail_log.append({
@@ -310,7 +343,8 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values
+                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
+                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
                     audit_trail_log.append({
@@ -336,6 +370,7 @@ if ts_file_1 and qb_file_1:
                     return 'RECOVERED'
                 return row['QC Status']
             final_df['QC Status'] = final_df.apply(adjust_for_recovery, axis=1)
+
         # ----------------------------------------------------
         # CRITICAL VALIDATION CHECK
         # ----------------------------------------------------
