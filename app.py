@@ -269,7 +269,6 @@ if ts_file_1 and qb_file_1:
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
-                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
                     old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
@@ -289,7 +288,6 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
                     old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
@@ -323,7 +321,6 @@ if ts_file_1 and qb_file_1:
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
-                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
                     old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
@@ -343,7 +340,6 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    # ✅ FIXED: Added [0] to extract single scalar element from numpy array
                     old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
@@ -393,6 +389,7 @@ if ts_file_1 and qb_file_1:
         m3.metric("🚀 Recovered Status", len(final_df[final_df['QC Status'] == "RECOVERED"]))
         m4.metric("❌ Failed QC Check", len(final_df[final_df['QC Status'] == "FAIL"]))
         m5.metric("⚠️ Above Upper Limit", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
+
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
         # ----------------------------------------------------
@@ -510,8 +507,7 @@ if ts_file_1 and qb_file_1:
             else:
                 st.button("📜 Download Modification Trace Log", disabled=True, help="Upload rerun files to log modifications.")
 
-        st.summary = st.success("✅ Output matrices and validation trace files generated successfully.")
+        st.success("✅ Output matrices and validation trace files generated successfully.")
 
     except Exception as e:
         st.error(f"Processing Error: {e}")
-
