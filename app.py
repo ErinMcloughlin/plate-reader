@@ -207,6 +207,8 @@ if ts_file_1 and qb_file_1:
             ["Show All Samples", "Show Only PASS Samples", "Show Only FAIL Samples", "Show Only MISSING 50BP Samples"]
         )
         
+        if status_filter == "Show Only PASS Samples":
+            filtered_display = final_df[final_df['QC Status'] == "PASS"]
         elif status_filter == "Show Only FAIL Samples":
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
         elif status_filter == "Show Only MISSING 50BP Samples":
