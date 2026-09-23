@@ -92,17 +92,17 @@ def process_data(ts_df_in, qb_df_in):
             
         # Isolate rows for this specific sample
         sample_ts_rows = ts_calc[ts_calc['Sample Description'] == sample_id]
-        region_50_row = sample_ts_rows[ts_calc['From [bp]'] == 50]
+        region_50_row = sample_ts_rows[ts_calc['From [bp]'] == 100]
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
         well_id = sample_ts_rows['WellId'].values[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
         
         # Determine baseline failure flags (used to track recovery)
-        is_baseline_missing = region_50_row.empty
+        is_baseline_missing = region_100_row.empty
         baseline_failed = False
         
         if not is_baseline_missing and not qubit_row.empty:
-            b_pct = float(region_50_row['% of Total'].values[0])
+            b_pct = float(region_100_row['% of Total'].values[0])
             b_q_conc = float(qubit_row['Original Sample Conc.'].values[0])
             b_mass = b_q_conc * (b_pct / 100.0) * TOTAL_VOLUME_UL
             if b_pct <= 60.0 or b_mass <= 10.0:
@@ -119,14 +119,14 @@ def process_data(ts_df_in, qb_df_in):
                 "Raw Qubit (ng/µL)": raw_qubit,
                 "Calculated Region (ng/µL)": 0.0,
                 "Total Regional Mass (ng in 50µL)": 0.0,
-                "QC Status": "MISSING 50BP"
+                "QC Status": "MISSING 100BP"
             })
             continue
 
         if not qubit_row.empty:
-            pct_of_total = float(region_50_row['% of Total'].values[0])
+            pct_of_total = float(region_100_row['% of Total'].values[0])
             raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values[0])
-            to_bp = region_50_row['To [bp]'].values[0]
+            to_bp = region_100_row['To [bp]'].values[0]
             
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
             total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
@@ -144,7 +144,7 @@ def process_data(ts_df_in, qb_df_in):
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
-                "Region Window": f"50-{to_bp} bp",
+                "Region Window": f"100-{to_bp} bp",
                 "TapeStation % of Total": round(pct_of_total, 2),
                 "Raw Qubit (ng/µL)": raw_qubit_conc,
                 "Calculated Region (ng/µL)": round(calculated_ng_ul, 4),
@@ -259,15 +259,17 @@ if ts_file_1 and qb_file_1:
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
             "Filter table view display parameters:", 
-            ["Show All Samples", "Show Only PASS Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples"]
+            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 50BP Samples"]
         )
         
         if status_filter == "Show Only PASS Samples":
             filtered_display = final_df[final_df['QC Status'] == "PASS"]
+        elif status_filter == "Show Only RECOVERED Samples":
+            filtered_display = final_df[final_df['QC Status'] == "RECOVERED"]
         elif status_filter == "Show Only FAIL Samples":
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
-        elif status_filter == "Show Only MISSING 100BP Samples":
-            filtered_display = final_df[final_df['QC Status'] == "MISSING 100BP"]
+        elif status_filter == "Show Only MISSING 50BP Samples":
+            filtered_display = final_df[final_df['QC Status'] == "MISSING 50BP"]
         else:
             filtered_display = final_df
 
@@ -277,14 +279,17 @@ if ts_file_1 and qb_file_1:
                 return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
             elif val == 'PASS':
                 return 'background-color: #ccffcc; color: #006600; font-weight: bold'
-            elif val == 'MISSING 100BP':
+            elif val == 'RECOVERED':
+                return 'background-color: #e6f7ff; color: #0050b3; font-weight: bold' # Clean Teal/Blue highlight
+            elif val == 'MISSING 50BP':
                 return 'background-color: #ffe6cc; color: #cc6600; font-weight: bold'
             return ''
 
         st.dataframe(
-            filtered_display.style.map(color_qc, subset=['QC Status']),
+            filtered_display.style.map(color_qc, subset=['QC Status']), 
             use_container_width=True
         )
+
 
         # ----------------------------------------------------
         # 5. EXPORT FORMAT GENERATION SYSTEM
