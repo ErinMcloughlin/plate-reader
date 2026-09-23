@@ -3,7 +3,6 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="NGS Library Multi-Run Hub", page_icon="🧬", layout="wide")
-st.subheader("📋 Sample Run Constraints")
 # ----------------------------------------------------
 # 1. USER INPUTS & FILE UPLOADER LAYOUT
 # ----------------------------------------------------
@@ -29,7 +28,7 @@ with st.container(border=True):
             "💡 **Quality Gate:** This value checks unique entries in your `Sample Description` log metrics. "
             "Downstream compilation panels and instrument file exporter download triggers remain locked until satisfied."
         )
-st.title("🧬 Alphanumeric Sample ID Matching & Smart Rerun Filter")
+st.title("🧬 Plate Upload")
 st.write("Upload your data logs below. If a rerun is needed, uploading all 4 files will automatically replace initial failures with updated data.")
 
 # Constants
