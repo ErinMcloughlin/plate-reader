@@ -213,7 +213,7 @@ if ts_file_1 and qb_file_1:
                 data=ts_csv_bytes,
                 file_name="updated_tapestation_report.csv",
                 mime="text/csv"
-            )
+        )
             
         with dl_col2:
             st.download_button(
@@ -221,7 +221,7 @@ if ts_file_1 and qb_file_1:
                 data=qb_csv_bytes,
                 file_name="updated_qubit_report.csv",
                 mime="text/csv"
-            )
+        )
             
         st.success("✅ Instrument files exported successfully.")
 
