@@ -182,15 +182,15 @@ if ts_file_1 and qb_file_1:
 
         qb_clean_cols = master_qb_df.columns.str.strip()
         qb_id_col_raw = find_qubit_id_col(master_qb_df)
+                qb_clean_cols = master_qb_df.columns.str.strip()
+        qb_id_col_raw = find_qubit_id_col(master_qb_df)
         qb_id_idx = list(master_qb_df.columns).index(qb_id_col_raw) if qb_id_col_raw else None
         qb_conc_idx = list(qb_clean_cols).index('Original Sample Conc.') if 'Original Sample Conc.' in qb_clean_cols else None
 
         is_rerun_mode = False
-        is_rerun_mode = False
-        # Initialize an empty list to capture our audit trail logs
         audit_trail_log = []
 
-        # 3. Apply Rerun Merging if files are present
+        # 3. Apply Rerun Overwrites and Track Changes
         if ts_file_2 and qb_file_2:
             is_rerun_mode = True
             raw_ts_rerun = pd.read_csv(ts_file_2, encoding='latin1')
@@ -202,50 +202,58 @@ if ts_file_1 and qb_file_1:
             raw_ts_rerun['From [bp]'] = pd.to_numeric(raw_ts_rerun['From [bp]'], errors='coerce')
             ts_rerun_filtered = raw_ts_rerun[raw_ts_rerun['From [bp]'] == 100]
             
-            # Trace TapeStation updates
             for _, rerun_row in ts_rerun_filtered.iterrows():
                 sample_id = str(rerun_row['Sample Description']).strip()
                 new_pct = rerun_row['% of Total']
                 
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
-                
                 if ts_mask.any():
-                    # Record old value before overwrite
                     old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
                     audit_trail_log.append({
                         "Sample ID": sample_id,
-                        "Instrument File Type": "TapeStation",
-                        "Data Parameter Updated": "% of Total (100bp Region)",
+                        "Instrument File": "TapeStation",
+                        "Parameter Updated": "% of Total (100bp Region)",
                         "Original Baseline Value": old_pct,
                         "New Overwritten Value": new_pct
                     })
 
-            # Trace Qubit updates
             for _, rerun_row in raw_qb_rerun.dropna(subset=['Original Sample Conc.']).iterrows():
                 qb_rerun_id_col = find_qubit_id_col(raw_qb_rerun)
                 sample_id = str(rerun_row[qb_rerun_id_col]).strip()
                 new_conc = rerun_row['Original Sample Conc.']
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
-                
                 if qb_mask.any():
-                    # Record old value before overwrite
                     old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
                     audit_trail_log.append({
                         "Sample ID": sample_id,
-                        "Instrument File Type": "Qubit",
-                        "Data Parameter Updated": "Original Sample Conc. (ng/µL)",
+                        "Instrument File": "Qubit",
+                        "Parameter Updated": "Original Sample Conc. (ng/µL)",
                         "Original Baseline Value": old_conc,
                         "New Overwritten Value": new_conc
                     })
 
-        # Convert the audit list into a structural tracking DataFrame
         audit_df = pd.DataFrame(audit_trail_log)
+
+        # 4. Final Calculations Matrix Generation
+        final_df = process_data(master_ts_df, master_qb_df, is_rerun_run=is_rerun_mode)
+
+        if final_df.empty:
+            st.error("❌ No exact sample ID matches found in the data log parameters.")
+            st.stop()
+
+        # Dynamic Check: Set RECOVERED flags status dynamically
+        if is_rerun_mode and original_failures:
+            def adjust_for_recovery(row):
+                if row['Sample Description'] in original_failures and row['QC Status'] == 'PASS':
+                    return 'RECOVERED'
+                return row['QC Status']
+            final_df['QC Status'] = final_df.apply(adjust_for_recovery, axis=1)
 
         # ----------------------------------------------------
         # CRITICAL VALIDATION CHECK
@@ -311,9 +319,8 @@ if ts_file_1 and qb_file_1:
         # ----------------------------------------------------
         st.write("---")
         st.subheader("📥 Download Modified Instrument Files & Audit Trail Logs")
-        st.info("These files maintain the exact headers and layout rows of your first uploaded files. The change log traces your history entries.")
+        st.info("These files maintain the exact headers and layout rows of your first uploaded files.")
 
-        # Re-pack instrument files
         ts_buffer = io.StringIO()
         master_ts_df.to_csv(ts_buffer, index=False)
         ts_csv_bytes = ts_buffer.getvalue()
@@ -322,16 +329,13 @@ if ts_file_1 and qb_file_1:
         master_qb_df.to_csv(qb_buffer, index=False)
         qb_csv_bytes = qb_buffer.getvalue()
 
-        # Re-pack Audit Change Log
         audit_csv_bytes = ""
         if is_rerun_mode and not audit_df.empty:
             audit_buffer = io.StringIO()
             audit_df.to_csv(audit_buffer, index=False)
             audit_csv_bytes = audit_buffer.getvalue()
 
-        # Render 3 columns side-by-side for neat alignment
         dl_col1, dl_col2, dl_col3 = st.columns(3)
-        
         with dl_col1:
             st.download_button(
                 label="📥 Download Updated TapeStation File",
@@ -339,7 +343,6 @@ if ts_file_1 and qb_file_1:
                 file_name="updated_tapestation_report.csv",
                 mime="text/csv"
             )
-            
         with dl_col2:
             st.download_button(
                 label="📥 Download Updated Qubit File",
@@ -347,18 +350,18 @@ if ts_file_1 and qb_file_1:
                 file_name="updated_qubit_report.csv",
                 mime="text/csv"
             )
-            
         with dl_col3:
             if is_rerun_mode and audit_csv_bytes != "":
                 st.download_button(
-                    label="📜 Download Rerun Modification Trace Log",
+                    label="📜 Download Modification Trace Log",
                     data=audit_csv_bytes,
                     file_name="rerun_modification_audit_log.csv",
                     mime="text/csv"
                 )
             else:
-                st.button("📜 Download Rerun Modification Trace Log", disabled=True, help="This option unlocks only when 4 files are parsed.")
-                
+                st.button("📜 Download Modification Trace Log", disabled=True, help="Upload rerun files to log modifications.")
+
         st.success("✅ Output matrices and validation trace files generated successfully.")
 
-    except Exception as e:st.error(f"Processing Error: {e}")
+    except Exception as e:
+        st.error(f"Processing Error: {e}")
