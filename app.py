@@ -26,16 +26,18 @@ with st.container(border=True):
         )
         
     with col_info:
+        # Define dynamic thresholds to display on the fly to the user
         if selected_study == "HALE":
             q_lim, ts_lim = "1.318 ng/µL", "89.69%"
         else:
             q_lim, ts_lim = "3.68 ng/µL", "92.89%"
             
         st.markdown(f"""
-        <div style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid #0288d1; margin-top: 5px;">
+        <div style="background-color: #f8f9fa; padding: 12px; border-radius: 5px; border-left: 4px solid #0288d1; margin-top: 5px;">
             <p style="margin: 0; font-size: 13px; font-weight: bold; color: #0288d1;">🛡️ Active Upper Limit Warning Matrices</p>
-            <p style="margin: 3px 0 0 0; font-size: 12px; color: #333;"><b>Qubit Concentration Limit:</b> Above {q_lim}</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px; color: #333;"><b>Qubit Concentration Limit:</b> Above {q_lim}</p>
             <p style="margin: 2px 0 0 0; font-size: 12px; color: #333;"><b>TapeStation % of Total Limit:</b> Above {ts_lim}</p>
+            <p style="margin: 2px 0 0 0; font-size: 12px; color: #333;"><b>Average Size [bp] Limit:</b> Above 350 bp</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -317,17 +319,15 @@ if ts_file_1 and qb_file_1:
 
         # Apply colorful background highlights to cells dynamically based on study criteria
         def color_qc_row(row):
-            # 1. Establish basic styles array matching the table columns
             styles = [''] * len(row)
             qc_status = row['QC Status']
             
-            # Find the positions of our key columns to apply cell-specific highlights
             cols = list(row.index)
             status_idx = cols.index('QC Status') if 'QC Status' in cols else -1
             qubit_idx = cols.index('Raw Qubit (ng/µL)') if 'Raw Qubit (ng/µL)' in cols else -1
             tapestation_idx = cols.index('TapeStation % of Total') if 'TapeStation % of Total' in cols else -1
+            size_idx = cols.index('Average Size [bp]') if 'Average Size [bp]' in cols else -1
 
-            # 2. Apply background styles to the QC Status column cell
             if status_idx != -1:
                 if qc_status == 'FAIL':
                     styles[status_idx] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
@@ -340,27 +340,29 @@ if ts_file_1 and qb_file_1:
                 elif qc_status == 'ABOVE UPPER LIMIT':
                     styles[status_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
 
-            # 3. SPECIFIC CELL HIGHLIGHT: Target individual columns exceeding the dynamic limits
             if selected_study == "HALE":
                 qubit_limit, ts_limit = 1.318, 89.69
             else:
                 qubit_limit, ts_limit = 3.68, 92.89
 
-            # Highlight Qubit column cell if it breaches threshold
+            # Highlight specific cell matrices if breaching thresholds
             if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > qubit_limit:
-                styles[qubit_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;' # Soft Amber-Red Warning
+                styles[qubit_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
 
-            # Highlight TapeStation column cell if it breaches threshold
             if tapestation_idx != -1 and float(row['TapeStation % of Total']) > ts_limit:
-                styles[tapestation_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;' # Soft Amber-Red Warning
+                styles[tapestation_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
+
+            # ✅ NEW HIGHLIGHT: Colors the cell if Average Size climbs past 350 base pairs
+            if size_idx != -1 and float(row['Average Size [bp]']) > 350.0:
+                styles[size_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
 
             return styles
 
-        # Render the updated table calling style.apply instead of style.map
         st.dataframe(
             filtered_display.style.apply(color_qc_row, axis=1), 
             use_container_width=True
         )
+
 
 
         # ----------------------------------------------------
