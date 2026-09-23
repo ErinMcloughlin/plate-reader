@@ -64,39 +64,39 @@ def process_data(ts_df_in, qb_df_in):
     processed_records = []
     
     for sample_id in all_ts_samples:
-        if not sample_id or sample_id == 'nan':
+        if not sample_id or sample_id == 'nan' or sample_id == '':
             continue
             
         # Isolate rows for this specific sample
         sample_ts_rows = ts_calc[ts_calc['Sample Description'] == sample_id]
-        # Look for the exact 100bp region row
-        region_100_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 100]
+        # Look for the exact 50bp region row
+        region_50_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 50]
         # Look for matching Qubit entry
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
-        # Grab well ID from any available row for this sample
-        well_id = sample_ts_rows['WellId'].iloc[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
+        # Grab well ID safely from values array
+        well_id = sample_ts_rows['WellId'].values[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
         
-        # FLAG CONDITIONAL: If the sample exists but lacks a 100bp row entry
-        if region_100_row.empty:
-            raw_qubit = float(qubit_row['Original Sample Conc.'].iloc[0]) if not qubit_row.empty else 0.0
+        # FLAG CONDITIONAL: If the sample exists but lacks a 50bp row entry
+        if region_50_row.empty:
+            raw_qubit = float(qubit_row['Original Sample Conc.'].values[0]) if not qubit_row.empty else 0.0
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
-                "Region Window": "No 100bp Region Found",
+                "Region Window": "No 50bp Region Found",
                 "TapeStation % of Total": 0.0,
                 "Raw Qubit (ng/µL)": raw_qubit,
                 "Calculated Region (ng/µL)": 0.0,
-                "Total Regional Mass (ng in 100µL)": 0.0,
-                "QC Status": "MISSING 100BP"
+                "Total Regional Mass (ng in 50µL)": 0.0,
+                "QC Status": "MISSING 50BP"
             })
             continue
 
-        # If it has the 100bp row, check if it also matches a Qubit record
+        # If it has the 50bp row, check if it also matches a Qubit record
         if not qubit_row.empty:
-            pct_of_total = float(region_100_row['% of Total'].iloc[0])
-            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].iloc[0])
-            to_bp = region_100_row['To [bp]'].iloc[0]
+            pct_of_total = float(region_50_row['% of Total'].values[0])
+            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values[0])
+            to_bp = region_50_row['To [bp]'].values[0]
             
             # Core Math Formulas
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
@@ -107,11 +107,11 @@ def process_data(ts_df_in, qb_df_in):
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
-                "Region Window": f"100-{to_bp} bp",
+                "Region Window": f"50-{to_bp} bp",
                 "TapeStation % of Total": round(pct_of_total, 2),
                 "Raw Qubit (ng/µL)": raw_qubit_conc,
                 "Calculated Region (ng/µL)": round(calculated_ng_ul, 4),
-                "Total Regional Mass (ng in 100µL)": round(total_mass_ng, 2),
+                "Total Regional Mass (ng in 50µL)": round(total_mass_ng, 2),
                 "QC Status": qc_status
             })
 
