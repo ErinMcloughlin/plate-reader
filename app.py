@@ -8,7 +8,7 @@ st.set_page_config(page_title="NGS Library Multi-Run Hub", page_icon="🧬", lay
 # ----------------------------------------------------
 # Wrap the constraint in a clean card container block
 with st.container(border=True):
-    st.markdown("### 📋 Run Parameters & Validation Setup")
+    st.markdown("### 📋 Sample Number Check")
     
     # Use columns to keep the width concise and aligned
     input_col, info_col = st.columns([1, 2])
@@ -26,7 +26,6 @@ with st.container(border=True):
         st.markdown("<br>", unsafe_allow_html=True) # Simple vertical spacer alignment
         st.caption(
             "💡 **Quality Gate:** This value checks unique entries in your `Sample Description` log metrics. "
-            "Downstream compilation panels and instrument file exporter download triggers remain locked until satisfied."
         )
 st.title("🧬 Plate Upload")
 st.write("Upload your data logs below. If a rerun is needed, uploading all 4 files will automatically replace initial failures with updated data.")
