@@ -11,7 +11,7 @@ st.write("Upload your data logs below. If a rerun is needed, uploading all 4 fil
 TOTAL_VOLUME_UL = 50.0
 
 # ----------------------------------------------------
-# 1. UI UPLOADER LAYOUT
+# 1. UI UPLOADER LAYOUT (Kept Exactly the Same)
 # ----------------------------------------------------
 st.subheader("📁 Data Log Inputs")
 col1, col2 = st.columns(2)
@@ -24,59 +24,57 @@ with col2:
     qb_file_1 = st.file_uploader("Qubit File (Initial Run)", type=["csv"], key="qb1")
     qb_file_2 = st.file_uploader("Qubit File (Rerun Only - Optional)", type=["csv"], key="qb2")
 
-# Helper function to parse, join, and compute standard parameters
-def process_data(ts_in, qb_in):
-    if ts_in is None or qb_in is None:
-        return None
-    
-    # Read TapeStation
-    ts_df = pd.read_csv(ts_in, encoding='latin1')
-    ts_df.columns = ts_df.columns.str.strip()
-    ts_df['Sample Description'] = ts_df['Sample Description'].astype(str).str.strip()
-    
-    # Filter for exact 50bp regions
-    ts_df['From [bp]'] = pd.to_numeric(ts_df['From [bp]'], errors='coerce')
-    ts_filtered = ts_df[ts_df['From [bp]'] == 50].copy()
-
-    # Read Qubit
-    qb_df = pd.read_csv(qb_in, encoding='latin1')
-    qb_df.columns = qb_df.columns.str.strip()
-    
-    qb_id_col = None
+# Helper function to find the flexible Qubit ID column name
+def find_qubit_id_col(df):
     for col_name in ['Sample Description', 'Sample Name', 'Sample ID']:
-        if col_name in qb_df.columns:
-            qb_id_col = col_name
-            break
-            
+        if col_name in df.columns:
+            return col_name
+    stripped_cols = {c.strip(): c for c in df.columns}
+    for col_name in ['Sample Description', 'Sample Name', 'Sample ID']:
+        if col_name in stripped_cols:
+            return stripped_cols[col_name]
+    return None
+
+# Helper function to process data strictly for dashboard view computations
+def process_data(ts_df_in, qb_df_in):
+    # Standardize column headers for reliable merge math without breaking raw copies
+    ts_calc = ts_df_in.copy()
+    ts_calc.columns = ts_calc.columns.str.strip()
+    ts_calc['Sample Description'] = ts_calc['Sample Description'].astype(str).str.strip()
+    
+    ts_calc['From [bp]'] = pd.to_numeric(ts_calc['From [bp]'], errors='coerce')
+    ts_filtered = ts_calc[ts_calc['From [bp]'] == 50].copy()
+
+    qb_calc = qb_df_in.copy()
+    qb_calc.columns = qb_calc.columns.str.strip()
+    
+    qb_id_col = find_qubit_id_col(qb_calc)
     if qb_id_col:
-        qb_df[qb_id_col] = qb_df[qb_id_col].astype(str).str.strip()
-        qb_df = qb_df.rename(columns={qb_id_col: 'Sample Description'})
+        qb_calc[qb_id_col] = qb_calc[qb_id_col].astype(str).str.strip()
+        qb_calc = qb_calc.rename(columns={qb_id_col: 'Sample Description'})
     else:
         st.error("❌ Qubit file is missing an identifier column.")
         st.stop()
         
-    qb_df = qb_df.dropna(subset=['Original Sample Conc.'])
+    qb_calc = qb_calc.dropna(subset=['Original Sample Conc.'])
 
-    # Merge data tables
-    merged = pd.merge(ts_filtered, qb_df, on='Sample Description', how='inner')
+    merged = pd.merge(ts_filtered, qb_calc, on='Sample Description', how='inner')
     if merged.empty:
         return pd.DataFrame()
 
-    # Core Math Formulas
     merged['% of Total'] = pd.to_numeric(merged['% of Total'], errors='coerce')
     merged['Original Sample Conc.'] = pd.to_numeric(merged['Original Sample Conc.'], errors='coerce')
     
     merged['Calculated Region (ng/µL)'] = merged['Original Sample Conc.'] * (merged['% of Total'] / 100.0)
     merged['Total Regional Mass (ng in 50µL)'] = merged['Calculated Region (ng/µL)'] * TOTAL_VOLUME_UL
 
-    # Apply Quality Control Flag Checks
     merged['QC Status'] = merged.apply(
         lambda r: "FAIL" if (r['% of Total'] <= 60.0 or r['Total Regional Mass (ng in 50µL)'] <= 10.0) else "PASS", 
         axis=1
     )
 
     return pd.DataFrame({
-        "Well ID": merged['WellId'],
+        "Well ID": merged['WellId'] if 'WellId' in merged.columns else range(1, len(merged)+1),
         "Sample Description": merged['Sample Description'],
         "Region Window": "50-" + merged['To [bp]'].astype(str) + " bp",
         "TapeStation % of Total": merged['% of Total'].round(2),
@@ -87,39 +85,68 @@ def process_data(ts_in, qb_in):
     })
 
 # ----------------------------------------------------
-# 2. SMART PIPELINE EXECUTION
+# 2. DATA MERGING PIPELINE
 # ----------------------------------------------------
 if ts_file_1 and qb_file_1:
     try:
-        # Run Initial Calculations
-        final_df = process_data(ts_file_1, qb_file_1)
-        
-        if final_df.empty:
-            st.error("❌ No exact sample ID matches found in the initial data logs.")
-            st.stop()
+        # Load raw files into memory preserving formatting exactly (Latin-1 preserves micro symbol 'µ')
+        master_ts_df = pd.read_csv(ts_file_1, encoding='latin1')
+        master_qb_df = pd.read_csv(qb_file_1, encoding='latin1')
+
+        # Identify raw column indices for strict structural manipulation
+        ts_clean_cols = master_ts_df.columns.str.strip()
+        ts_desc_idx = list(ts_clean_cols).index('Sample Description') if 'Sample Description' in ts_clean_cols else None
+        ts_from_idx = list(ts_clean_cols).index('From [bp]') if 'From [bp]' in ts_clean_cols else None
+        ts_pct_idx = list(ts_clean_cols).index('% of Total') if '% of Total' in ts_clean_cols else None
+
+        qb_clean_cols = master_qb_df.columns.str.strip()
+        qb_id_col_raw = find_qubit_id_col(master_qb_df)
+        qb_id_idx = list(master_qb_df.columns).index(qb_id_col_raw) if qb_id_col_raw else None
+        qb_conc_idx = list(qb_clean_cols).index('Original Sample Conc.') if 'Original Sample Conc.' in qb_clean_cols else None
 
         is_rerun_mode = False
 
-        # If user provides rerun files, execute smart overwrite matching rules
+        # In-Place replacement block if rerun pairs are uploaded
         if ts_file_2 and qb_file_2:
-            rerun_df = process_data(ts_file_2, qb_file_2)
+            is_rerun_mode = True
+            raw_ts_rerun = pd.read_csv(ts_file_2, encoding='latin1')
+            raw_qb_rerun = pd.read_csv(qb_file_2, encoding='latin1')
             
-            if not rerun_df.empty:
-                is_rerun_mode = True
+            raw_ts_rerun.columns = raw_ts_rerun.columns.str.strip()
+            raw_qb_rerun.columns = raw_qb_rerun.columns.str.strip()
+
+            # Overwrite TapeStation Master Sheet records where From [bp] == 50
+            raw_ts_rerun['From [bp]'] = pd.to_numeric(raw_ts_rerun['From [bp]'], errors='coerce')
+            ts_rerun_filtered = raw_ts_rerun[raw_ts_rerun['From [bp]'] == 50]
+            
+            for _, rerun_row in ts_rerun_filtered.iterrows():
+                sample_id = str(rerun_row['Sample Description']).strip()
+                new_pct = rerun_row['% of Total']
                 
-                # Filter out the initial failures that have an updated entry in the rerun data
-                rerun_sample_ids = rerun_df['Sample Description'].tolist()
+                ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
+                          (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 50)
+                if ts_mask.any():
+                    master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
+
+            # Overwrite Qubit Master Sheet records
+            for _, rerun_row in raw_qb_rerun.dropna(subset=['Original Sample Conc.']).iterrows():
+                qb_rerun_id_col = find_qubit_id_col(raw_qb_rerun)
+                sample_id = str(rerun_row[qb_rerun_id_col]).strip()
+                new_conc = rerun_row['Original Sample Conc.']
                 
-                # Drop old records for these specific samples from our baseline run
-                final_df = final_df[~final_df['Sample Description'].isin(rerun_sample_ids)]
-                
-                # Append the fresh new rerun data records straight onto our dataset matrix
-                final_df = pd.concat([final_df, rerun_df], ignore_index=True)
-            else:
-                st.warning("⚠️ Rerun files were uploaded but no matching sample data points could be paired.")
+                qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
+                if qb_mask.any():
+                    master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
+
+        # Compute data strictly for screen visualization grid parameters
+        final_df = process_data(master_ts_df, master_qb_df)
+
+        if final_df.empty:
+            st.error("❌ No exact sample ID matches found in the data log parameters.")
+            st.stop()
 
         # ----------------------------------------------------
-        # 3. DASHBOARD SUMMARY DISPLAY PANELS
+        # 3. DASHBOARD SUMMARY PANEL (Kept Exactly the Same)
         # ----------------------------------------------------
         st.write("---")
         if is_rerun_mode:
@@ -138,7 +165,7 @@ if ts_file_1 and qb_file_1:
         m4.metric("Avg Tube Mass Yield", f"{final_df['Total Regional Mass (ng in 50µL)'].mean():.2f} ng")
 
         # ----------------------------------------------------
-        # 4. INTERACTIVE VIEW DROPDOWN FILTER
+        # 4. INTERACTIVE VIEW DROPDOWN FILTER (Kept Exactly the Same)
         # ----------------------------------------------------
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
@@ -153,7 +180,6 @@ if ts_file_1 and qb_file_1:
         else:
             filtered_display = final_df
 
-        # Apply colorful background highlights to pass/fail status cells
         def color_qc(val):
             return 'background-color: #ffcccc; color: #cc0000; font-weight: bold' if val == 'FAIL' else 'background-color: #ccffcc; color: #006600; font-weight: bold'
 
@@ -162,19 +188,44 @@ if ts_file_1 and qb_file_1:
             use_container_width=True
         )
 
-        # Generate download export system csv string layout buffer options
-        # Note: The download always exports the full sheet (including ruruns), regardless of the dropdown filter view
-        csv_buffer = io.StringIO()
-        final_df.to_csv(csv_buffer, index=False)
-        csv_data = csv_buffer.getvalue()
+        # ----------------------------------------------------
+        # 5. NEW EXPORT FORMAT GENERATION SYSTEM
+        # ----------------------------------------------------
+        st.write("---")
+        st.subheader("📥 Download Modified Instrument Files")
+        st.info("These files maintain the exact headers and layout rows of your first uploaded files. If reruns were provided, the data is integrated directly into them.")
 
-        st.download_button(
-            label="📥 Download Consolidated Report CSV",
-            data=csv_data,
-            file_name="consolidated_ngs_yield_report.csv",
-            mime="text/csv"
-        )
-        st.success("✅ Calculations executed safely across matching data streams successfully.")
+        # Re-pack raw files back to string csv formats using memory string buffers
+        ts_buffer = io.StringIO()
+        master_ts_df.to_csv(ts_buffer, index=False)
+        ts_csv_bytes = ts_buffer.getvalue()
+
+        qb_buffer = io.StringIO()
+        master_qb_df.to_csv(qb_buffer, index=False)
+        qb_csv_bytes = qb_buffer.getvalue()
+
+        dl_col1, dl_col2 = st.columns(2)
+        with dl_col1:
+            st.download_button(
+                label="📥 Download Updated TapeStation File",
+                            st.download_button(
+                label="📥 Download Updated TapeStation File",
+                data=ts_csv_bytes,
+                file_name="updated_tapestation_report.csv",
+                mime="text/csv"
+            )
+            
+        with dl_col2:
+            st.download_button(
+                label="📥 Download Updated Qubit File",
+                data=qb_csv_bytes,
+                file_name="updated_qubit_report.csv",
+                mime="text/csv"
+            )
+            
+        st.success("✅ Instrument files exported successfully.")
 
     except Exception as e:
         st.error(f"Processing Error: {e}")
+
+
