@@ -199,23 +199,26 @@ if ts_file_1 and qb_file_1:
             raw_ts_rerun.columns = raw_ts_rerun.columns.str.strip()
             raw_qb_rerun.columns = raw_qb_rerun.columns.str.strip()
 
-            # Clean incoming rerun data strings safely
+            # Ensure data tracking types match smoothly
             raw_ts_rerun['Sample Description'] = raw_ts_rerun['Sample Description'].astype(str).str.strip()
+            raw_ts_rerun['From [bp]'] = pd.to_numeric(raw_ts_rerun['From [bp]'], errors='coerce')
             
             for _, rerun_row in raw_ts_rerun.iterrows():
                 sample_id = str(rerun_row['Sample Description']).strip()
                 new_pct = rerun_row['% of Total']
+                from_bp_val = rerun_row['From [bp]']
                 
-                if pd.isna(new_pct) or sample_id in ['nan', '']:
+                # CRITICAL STEP: Skip empty rows or any row that isn't exactly the 100 bp region
+                if pd.isna(new_pct) or sample_id in ['nan', ''] or from_bp_val != 100:
                     continue
                 
-                # ✅ SMART MATCHING: Find any 100bp row matching this sample ID, ignoring the rerun file's region column header label
+                # Find the 100bp row matching this sample ID in the master sheet
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 
                 if ts_mask.any():
                     # Safely convert old value to a readable string for the trace log
-                    raw_val = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
+                    raw_val = master_ts_df.iloc[ts_mask, ts_pct_idx].values
                     old_pct_str = "BLANK/NaN" if pd.isna(raw_val) or str(raw_val).strip() == "" else f"{raw_val}%"
                     
                     # Update the value in the master sheet
@@ -237,7 +240,7 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
+                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
                     audit_trail_log.append({
