@@ -4,29 +4,46 @@ import io
 
 st.set_page_config(page_title="NGS Library Multi-Run Hub", page_icon="🧬", layout="wide")
 # ----------------------------------------------------
-# 1. USER INPUTS & FILE UPLOADER LAYOUT
+# 1. USER INPUTS & STUDY THRESHOLDS LAYOUT
 # ----------------------------------------------------
-# Wrap the constraint in a clean card container block
 with st.container(border=True):
-    st.markdown("### 📋 Sample Number Check")
+    st.markdown("### 📋 Run Parameters & Study Quality Gates")
     
-    # Use columns to keep the width concise and aligned
-    input_col, info_col = st.columns([1, 2])
+    # Split into 3 visual columns for space optimization
+    col_input, col_study, col_info = st.columns([1.2, 1.2, 2])
     
-    with input_col:
+    with col_input:
         expected_samples_count = st.number_input(
             "Expected Unique Samples:",
             min_value=1,
-            value=1,  # Setting default to 10 prevents immediate 0 errors on load
+            value=84,  
             step=1,
             help="The analytical pipeline will gatekeep processing until your verified file rows match this value exactly."
         )
         
-    with info_col:
-        st.markdown("<br>", unsafe_allow_html=True) # Simple vertical spacer alignment
-        st.caption(
-            "💡 **Quality Gate:** This value checks unique entries in your `Sample Description` log metrics. "
+    with col_study:
+        # Dynamic Study Target Configuration Parameter Selector Dropdown
+        selected_study = st.selectbox(
+            "Select Associated Study Framework:",
+            ["HALE", "Procares"],
+            help="Choosing a study sets the explicit upper limits. Samples breaching these points will flag warning alerts."
         )
+        
+    with col_info:
+        # Define dynamic thresholds to display on the fly to the user
+        if selected_study == "HALE":
+            q_lim, ts_lim = "1.318 ng/µL", "89.69%"
+        else:
+            q_lim, ts_lim = "3.68 ng/µL", "92.89%"
+            
+        st.markdown(f"""
+        <div style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid #0288d1; margin-top: 5px;">
+            <p style="margin: 0; font-size: 13px; font-weight: bold; color: #0288d1;">🛡️ Active Upper Limit Warning Matrices</p>
+            <p style="margin: 3px 0 0 0; font-size: 12px; color: #333;"><b>Qubit Concentration Limit:</b> Above {q_lim}</p>
+            <p style="margin: 2px 0 0 0; font-size: 12px; color: #333;"><b>TapeStation % of Total Limit:</b> Above {ts_lim}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
 st.title("🧬 Plate Upload")
 st.write("Upload your data logs below. If a rerun is needed, uploading all 4 files will automatically replace initial failures with updated data.")
 
@@ -124,22 +141,38 @@ def process_data(ts_df_in, qb_df_in, is_rerun_run=False):
             continue
 
         if not qubit_row.empty:
-            pct_of_total = float(region_100_row['% of Total'].values[0])
-            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values[0])
-            to_bp = region_100_row['To [bp]'].values[0]
+            try:
+                pct_val = region_100_row['% of Total'].values
+                pct_of_total = float(pct_val) if pd.notna(pct_val) and str(pct_val).strip() != "" else 0.0
+            except:
+                pct_of_total = 0.0
+                
+            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values)
+            to_bp = region_100_row['To [bp]'].values
             
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
             total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
             
-            # Determine active evaluation status
+            # --- STUDY UPPER LIMIT CONTROL EVALUATIONS ---
+            # Define limits dynamically based on the dropdown selection
+            if selected_study == "HALE":
+                qubit_limit = 1.318
+                tapestation_limit = 89.69
+            else:
+                qubit_limit = 3.68
+                tapestation_limit = 92.89
+
+            # Check if values breach upper limits
+            is_above_qubit = raw_qubit_conc > qubit_limit
+            is_above_tapestation = pct_of_total > tapestation_limit
+
+            # Determine Active QC Status Hierarchy
             if pct_of_total <= 60.0 or total_mass_ng <= 10.0:
                 qc_status = "FAIL"
+            elif is_above_qubit or is_above_tapestation:
+                qc_status = "ABOVE UPPER LIMIT"
             else:
-                # ✅ CORRECTED LINE: Uses function parameter flag directly
-                if (is_baseline_missing or baseline_failed) and is_rerun_run:
-                    qc_status = "RECOVERED"
-                else:
-                    qc_status = "PASS"
+                qc_status = "PASS"
             
             processed_records.append({
                 "Well ID": well_id,
@@ -151,6 +184,7 @@ def process_data(ts_df_in, qb_df_in, is_rerun_run=False):
                 "Total Regional Mass (ng in 50µL)": round(total_mass_ng, 2),
                 "QC Status": qc_status
             })
+
 
     return pd.DataFrame(processed_records)
 
@@ -297,7 +331,7 @@ if ts_file_1 and qb_file_1:
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
             "Filter table view display parameters:", 
-            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples"]
+            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples", "Show Only ABOVE UPPER LIMIT Samples"]
         )
         
         if status_filter == "Show Only PASS Samples":
@@ -308,9 +342,12 @@ if ts_file_1 and qb_file_1:
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
         elif status_filter == "Show Only MISSING 100BP Samples":
             filtered_display = final_df[final_df['QC Status'] == "MISSING 100BP"]
+        elif status_filter == "Show Only ABOVE UPPER LIMIT Samples":
+            filtered_display = final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]
         else:
             filtered_display = final_df
 
+        # Apply colorful background highlights to cells dynamically
         def color_qc(val):
             if val == 'FAIL':
                 return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
@@ -320,12 +357,15 @@ if ts_file_1 and qb_file_1:
                 return 'background-color: #e6f7ff; color: #0050b3; font-weight: bold' 
             elif val == 'MISSING 100BP':
                 return 'background-color: #ffe6cc; color: #cc6600; font-weight: bold'
+            elif val == 'ABOVE UPPER LIMIT':
+                return 'background-color: #fff2cc; color: #d68100; font-weight: bold' # Dynamic Warning Highlight
             return ''
 
         st.dataframe(
             filtered_display.style.map(color_qc, subset=['QC Status']), 
             use_container_width=True
         )
+
 
         # ----------------------------------------------------
         # 5. EXPORT FORMAT GENERATION SYSTEM
