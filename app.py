@@ -155,15 +155,24 @@ def process_data(ts_df_in, qb_df_in, is_rerun_run=False):
     return pd.DataFrame(processed_records)
 
 
-
 # ----------------------------------------------------
-# 2. DATA MERGING PIPELINE
+# 2. DATA MERGING & VERIFICATION PIPELINE
 # ----------------------------------------------------
 if ts_file_1 and qb_file_1:
     try:
-        # Load raw files into memory preserving formatting exactly (Latin-1 preserves micro symbol 'µ')
+        # 1. Load original raw files into memory
         master_ts_df = pd.read_csv(ts_file_1, encoding='latin1')
         master_qb_df = pd.read_csv(qb_file_1, encoding='latin1')
+
+        # 2. Calculate baseline values first to find original dropouts
+        baseline_df = process_data(master_ts_df, master_qb_df, is_rerun_run=False)
+        
+        # Save a list of sample IDs that originally failed or were missing
+        original_failures = []
+        if not baseline_df.empty:
+            original_failures = baseline_df[
+                baseline_df['QC Status'].isin(['FAIL', 'MISSING 100BP'])
+            ]['Sample Description'].tolist()
 
         # Identify raw column indices for strict structural manipulation
         ts_clean_cols = master_ts_df.columns.str.strip()
@@ -178,7 +187,7 @@ if ts_file_1 and qb_file_1:
 
         is_rerun_mode = False
 
-        # In-Place replacement block if rerun pairs are uploaded
+        # 3. Apply Rerun Merging if files are present
         if ts_file_2 and qb_file_2:
             is_rerun_mode = True
             raw_ts_rerun = pd.read_csv(ts_file_2, encoding='latin1')
@@ -187,7 +196,6 @@ if ts_file_1 and qb_file_1:
             raw_ts_rerun.columns = raw_ts_rerun.columns.str.strip()
             raw_qb_rerun.columns = raw_qb_rerun.columns.str.strip()
 
-            # Overwrite TapeStation Master Sheet records where From [bp] == 100
             raw_ts_rerun['From [bp]'] = pd.to_numeric(raw_ts_rerun['From [bp]'], errors='coerce')
             ts_rerun_filtered = raw_ts_rerun[raw_ts_rerun['From [bp]'] == 100]
             
@@ -200,7 +208,6 @@ if ts_file_1 and qb_file_1:
                 if ts_mask.any():
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
 
-            # Overwrite Qubit Master Sheet records
             for _, rerun_row in raw_qb_rerun.dropna(subset=['Original Sample Conc.']).iterrows():
                 qb_rerun_id_col = find_qubit_id_col(raw_qb_rerun)
                 sample_id = str(rerun_row[qb_rerun_id_col]).strip()
@@ -210,50 +217,44 @@ if ts_file_1 and qb_file_1:
                 if qb_mask.any():
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
 
-        # Compute data strictly for screen visualization grid parameters
-        final_df = process_data(master_ts_df, master_qb_df, is_rerun_run=is_rerun_mode)
-
-
-        if final_df.empty:
-            st.error("❌ No exact sample ID matches found in the data log parameters.")
-            st.stop()
-        # Compute data strictly for screen visualization grid parameters
-        final_df = process_data(master_ts_df, master_qb_df)
+        # 4. Process final calculations with updated frames
+        final_df = process_data(master_ts_df, master_qb_df, is_rerun_run=False)
 
         if final_df.empty:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
             st.stop()
+
+        # 5. Dynamic Check: Compare current status against original failures
+        if is_rerun_mode and original_failures:
+            def adjust_for_recovery(row):
+                if row['Sample Description'] in original_failures and row['QC Status'] == 'PASS':
+                    return 'RECOVERED'
+                return row['QC Status']
+            
+            final_df['QC Status'] = final_df.apply(adjust_for_recovery, axis=1)
 
         # ----------------------------------------------------
-        # CRITICAL VALIDATION CHECK (INSERT THIS BLOCK HERE)
+        # CRITICAL VALIDATION CHECK
         # ----------------------------------------------------
         total_reported_samples = len(final_df)
-        
         if total_reported_samples != expected_samples_count:
             st.error(f"🚨 **Sample Count Mismatch! Processing Blocked.**")
             st.error(f"Expected: **{expected_samples_count}** unique samples | Detected in files: **{total_reported_samples}** unique samples.")
-            st.info("💡 Please verify your input log files or update the expected sample input number above to match your run sequence layout.")
-            st.stop() # Stops execution instantly, blocking downstream dashboard elements
+            st.info("💡 Please verify your input log files or update the expected sample input number above.")
+            st.stop()
 
         # ----------------------------------------------------
         # 3. DASHBOARD SUMMARY PANEL
         # ----------------------------------------------------
         st.write("---")
-        if is_rerun_mode:
-            st.subheader("📊 Combined Multi-Run Analysis Summary (Reruns Merged)")
-        else:
-            st.subheader("📊 Initial Run Analysis Summary")
+        st.subheader("📊 Combined Run Analysis Summary" if is_rerun_mode else "📊 Initial Run Analysis Summary")
 
-        t_count = len(final_df)
-        p_count = len(final_df[final_df['QC Status'] == "PASS"])
-        f_count = len(final_df[final_df['QC Status'] == "FAIL"])
-        m_count = len(final_df[final_df['QC Status'] == "MISSING 100BP"])
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Reported Samples", t_count)
-        m2.metric("✅ Passed QC Check", p_count)
-        m3.metric("❌ Failed QC Check", f_count, delta=f"-{f_count}" if f_count > 0 else None, delta_color="inverse")
-        m4.metric("⚠️ Missing 100bp Regions", m_count)
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Total Reported Samples", len(final_df))
+        m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
+        m3.metric("🚀 Recovered Status", len(final_df[final_df['QC Status'] == "RECOVERED"]))
+        m4.metric("❌ Failed QC Check", len(final_df[final_df['QC Status'] == "FAIL"]))
+        m5.metric("⚠️ Missing 100bp Regions", len(final_df[final_df['QC Status'] == "MISSING 100BP"]))
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
@@ -270,20 +271,19 @@ if ts_file_1 and qb_file_1:
             filtered_display = final_df[final_df['QC Status'] == "RECOVERED"]
         elif status_filter == "Show Only FAIL Samples":
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
-        elif status_filter == "Show Only MISSING 50BP Samples":
-            filtered_display = final_df[final_df['QC Status'] == "MISSING 50BP"]
+        elif status_filter == "Show Only MISSING 100BP Samples":
+            filtered_display = final_df[final_df['QC Status'] == "MISSING 100BP"]
         else:
             filtered_display = final_df
 
-        # Apply colorful background highlights to cells dynamically
         def color_qc(val):
             if val == 'FAIL':
                 return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
             elif val == 'PASS':
                 return 'background-color: #ccffcc; color: #006600; font-weight: bold'
             elif val == 'RECOVERED':
-                return 'background-color: #e6f7ff; color: #0050b3; font-weight: bold' # Clean Teal/Blue highlight
-            elif val == 'MISSING 50BP':
+                return 'background-color: #e6f7ff; color: #0050b3; font-weight: bold' 
+            elif val == 'MISSING 100BP':
                 return 'background-color: #ffe6cc; color: #cc6600; font-weight: bold'
             return ''
 
@@ -292,13 +292,12 @@ if ts_file_1 and qb_file_1:
             use_container_width=True
         )
 
-
         # ----------------------------------------------------
         # 5. EXPORT FORMAT GENERATION SYSTEM
         # ----------------------------------------------------
         st.write("---")
         st.subheader("📥 Download Modified Instrument Files")
-        st.info("These files maintain the exact headers and layout rows of your first uploaded files. If reruns were provided, the data is integrated directly into them.")
+        st.info("These files maintain the exact headers and layout rows of your first uploaded files.")
 
         ts_buffer = io.StringIO()
         master_ts_df.to_csv(ts_buffer, index=False)
@@ -309,7 +308,6 @@ if ts_file_1 and qb_file_1:
         qb_csv_bytes = qb_buffer.getvalue()
 
         dl_col1, dl_col2 = st.columns(2)
-        
         with dl_col1:
             st.download_button(
                 label="📥 Download Updated TapeStation File",
@@ -317,7 +315,6 @@ if ts_file_1 and qb_file_1:
                 file_name="updated_tapestation_report.csv",
                 mime="text/csv"
             )
-            
         with dl_col2:
             st.download_button(
                 label="📥 Download Updated Qubit File",
@@ -325,8 +322,8 @@ if ts_file_1 and qb_file_1:
                 file_name="updated_qubit_report.csv",
                 mime="text/csv"
             )
-            
         st.success("✅ Instrument files exported successfully.")
 
     except Exception as e:
         st.error(f"Processing Error: {e}")
+
