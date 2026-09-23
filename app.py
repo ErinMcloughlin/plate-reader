@@ -336,11 +336,11 @@ if ts_file_1 and qb_file_1:
 
             # Highlight Qubit column cell if it breaches threshold
             if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > qubit_limit:
-                styles[qubit_idx] = 'background-color: #ffe0b2; color: #b71c1c; font-weight: bold;' # Soft Amber-Red Warning
+                styles[qubit_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;' # Soft Amber-Red Warning
 
             # Highlight TapeStation column cell if it breaches threshold
             if tapestation_idx != -1 and float(row['TapeStation % of Total']) > ts_limit:
-                styles[tapestation_idx] = 'background-color: #ffe0b2; color: #b71c1c; font-weight: bold;' # Soft Amber-Red Warning
+                styles[tapestation_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;' # Soft Amber-Red Warning
 
             return styles
 
