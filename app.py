@@ -334,21 +334,29 @@ if ts_file_1 and qb_file_1:
         st.subheader("📥 Download Modified Instrument Files & Audit Trail Logs")
         st.info("These files maintain the exact headers and layout rows of your first uploaded files.")
 
-        # ✅ FIX: Export instrument data using 'latin1' encoding to preserve the pure micro symbol (µ)
+        # Re-pack TapeStation data
         ts_buffer = io.StringIO()
-        master_ts_df.to_csv(ts_buffer, index=False, encoding='latin1')
-        ts_csv_bytes = ts_buffer.getvalue()
+        master_ts_df.to_csv(ts_buffer, index=False)
+        ts_csv_text = ts_buffer.getvalue()
+        
+        # ✅ FORCE CLEAN SYMBOL: Explicitly swap out the corrupted bytes string for a clean micro symbol (µ)
+        ts_csv_text = ts_csv_text.replace("Conc. [pg/Âµl]", "Conc. [pg/µl]")
+        
+        # Encode strictly to Windows-1252/Latin-1 to preserve the isolated single-byte 'µ'
+        ts_csv_bytes = ts_csv_text.encode('latin1', errors='ignore')
 
+        # Re-pack Qubit data
         qb_buffer = io.StringIO()
-        master_qb_df.to_csv(qb_buffer, index=False, encoding='latin1')
-        qb_csv_bytes = qb_buffer.getvalue()
+        master_qb_df.to_csv(qb_buffer, index=False)
+        qb_csv_text = qb_buffer.getvalue()
+        qb_csv_bytes = qb_csv_text.encode('latin1', errors='ignore')
 
-        # Audit log trail can remain standard text format
+        # Audit log trail
         audit_csv_bytes = ""
         if is_rerun_mode and not audit_df.empty:
             audit_buffer = io.StringIO()
             audit_df.to_csv(audit_buffer, index=False)
-            audit_csv_bytes = audit_buffer.getvalue()
+            audit_csv_bytes = audit_buffer.getvalue().encode('utf-8')
 
         dl_col1, dl_col2, dl_col3 = st.columns(3)
         with dl_col1:
@@ -366,7 +374,7 @@ if ts_file_1 and qb_file_1:
                 mime="text/csv"
             )
         with dl_col3:
-            if is_rerun_mode and audit_csv_bytes != "":
+            if is_rerun_mode and audit_csv_bytes != b"":
                 st.download_button(
                     label="📜 Download Modification Trace Log",
                     data=audit_csv_bytes,
