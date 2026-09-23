@@ -208,8 +208,6 @@ if ts_file_1 and qb_file_1:
         with dl_col1:
             st.download_button(
                 label="📥 Download Updated TapeStation File",
-                            st.download_button(
-                label="📥 Download Updated TapeStation File",
                 data=ts_csv_bytes,
                 file_name="updated_tapestation_report.csv",
                 mime="text/csv"
