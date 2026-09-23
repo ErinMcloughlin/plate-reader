@@ -303,23 +303,53 @@ if ts_file_1 and qb_file_1:
         else:
             filtered_display = final_df
 
-        def color_qc(val):
-            if val == 'FAIL':
-                return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
-            elif val == 'PASS':
-                return 'background-color: #ccffcc; color: #006600; font-weight: bold'
-            elif val == 'RECOVERED':
-                return 'background-color: #e6f7ff; color: #0050b3; font-weight: bold' 
-            elif val == 'MISSING 100BP':
-                return 'background-color: #ffe6cc; color: #cc6600; font-weight: bold'
-            elif val == 'ABOVE UPPER LIMIT':
-                return 'background-color: #fff2cc; color: #d68100; font-weight: bold'
-            return ''
+        # Apply colorful background highlights to cells dynamically based on study criteria
+        def color_qc_row(row):
+            # 1. Establish basic styles array matching the table columns
+            styles = [''] * len(row)
+            qc_status = row['QC Status']
+            
+            # Find the positions of our key columns to apply cell-specific highlights
+            cols = list(row.index)
+            status_idx = cols.index('QC Status') if 'QC Status' in cols else -1
+            qubit_idx = cols.index('Raw Qubit (ng/µL)') if 'Raw Qubit (ng/µL)' in cols else -1
+            tapestation_idx = cols.index('TapeStation % of Total') if 'TapeStation % of Total' in cols else -1
 
+            # 2. Apply background styles to the QC Status column cell
+            if status_idx != -1:
+                if qc_status == 'FAIL':
+                    styles[status_idx] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
+                elif qc_status == 'PASS':
+                    styles[status_idx] = 'background-color: #ccffcc; color: #006600; font-weight: bold;'
+                elif qc_status == 'RECOVERED':
+                    styles[status_idx] = 'background-color: #e6f7ff; color: #0050b3; font-weight: bold;'
+                elif qc_status == 'MISSING 100BP':
+                    styles[status_idx] = 'background-color: #ffe6cc; color: #cc6600; font-weight: bold;'
+                elif qc_status == 'ABOVE UPPER LIMIT':
+                    styles[status_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
+
+            # 3. SPECIFIC CELL HIGHLIGHT: Target individual columns exceeding the dynamic limits
+            if selected_study == "HALE":
+                qubit_limit, ts_limit = 1.318, 89.69
+            else:
+                qubit_limit, ts_limit = 3.68, 92.89
+
+            # Highlight Qubit column cell if it breaches threshold
+            if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > qubit_limit:
+                styles[qubit_idx] = 'background-color: #ffe0b2; color: #b71c1c; font-weight: bold;' # Soft Amber-Red Warning
+
+            # Highlight TapeStation column cell if it breaches threshold
+            if tapestation_idx != -1 and float(row['TapeStation % of Total']) > ts_limit:
+                styles[tapestation_idx] = 'background-color: #ffe0b2; color: #b71c1c; font-weight: bold;' # Soft Amber-Red Warning
+
+            return styles
+
+        # Render the updated table calling style.apply instead of style.map
         st.dataframe(
-            filtered_display.style.map(color_qc, subset=['QC Status']), 
+            filtered_display.style.apply(color_qc_row, axis=1), 
             use_container_width=True
         )
+
 
         # ----------------------------------------------------
         # 5. EXPORT FORMAT GENERATION SYSTEM
