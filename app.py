@@ -199,27 +199,37 @@ if ts_file_1 and qb_file_1:
             raw_ts_rerun.columns = raw_ts_rerun.columns.str.strip()
             raw_qb_rerun.columns = raw_qb_rerun.columns.str.strip()
 
-            raw_ts_rerun['From [bp]'] = pd.to_numeric(raw_ts_rerun['From [bp]'], errors='coerce')
-            ts_rerun_filtered = raw_ts_rerun[raw_ts_rerun['From [bp]'] == 100]
+            # Clean incoming rerun data strings safely
+            raw_ts_rerun['Sample Description'] = raw_ts_rerun['Sample Description'].astype(str).str.strip()
             
-            for _, rerun_row in ts_rerun_filtered.iterrows():
+            for _, rerun_row in raw_ts_rerun.iterrows():
                 sample_id = str(rerun_row['Sample Description']).strip()
                 new_pct = rerun_row['% of Total']
                 
+                if pd.isna(new_pct) or sample_id in ['nan', '']:
+                    continue
+                
+                # ✅ SMART MATCHING: Find any 100bp row matching this sample ID, ignoring the rerun file's region column header label
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) & \
                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
+                
                 if ts_mask.any():
-                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
+                    # Safely convert old value to a readable string for the trace log
+                    raw_val = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
+                    old_pct_str = "BLANK/NaN" if pd.isna(raw_val) or str(raw_val).strip() == "" else f"{raw_val}%"
+                    
+                    # Update the value in the master sheet
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
                     audit_trail_log.append({
                         "Sample ID": sample_id,
                         "Instrument File": "TapeStation",
                         "Parameter Updated": "% of Total (100bp Region)",
-                        "Original Baseline Value": old_pct,
-                        "New Overwritten Value": new_pct
+                        "Original Baseline Value": old_pct_str,
+                        "New Overwritten Value": f"{new_pct}%"
                     })
 
+            # Trace Qubit updates
             for _, rerun_row in raw_qb_rerun.dropna(subset=['Original Sample Conc.']).iterrows():
                 qb_rerun_id_col = find_qubit_id_col(raw_qb_rerun)
                 sample_id = str(rerun_row[qb_rerun_id_col]).strip()
@@ -234,8 +244,8 @@ if ts_file_1 and qb_file_1:
                         "Sample ID": sample_id,
                         "Instrument File": "Qubit",
                         "Parameter Updated": "Original Sample Conc. (ng/µL)",
-                        "Original Baseline Value": old_conc,
-                        "New Overwritten Value": new_conc
+                        "Original Baseline Value": f"{old_conc} ng/µL" if not pd.isna(old_conc) else "BLANK",
+                        "New Overwritten Value": f"{new_conc} ng/µL"
                     })
 
         audit_df = pd.DataFrame(audit_trail_log)
