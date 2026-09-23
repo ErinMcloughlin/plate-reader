@@ -109,7 +109,7 @@ def process_data(ts_df_in, qb_df_in):
                 baseline_failed = True
 
         # Process active current metrics (including any overwritten files)
-        if region_50_row.empty:
+        if region_100_row.empty:
             raw_qubit = float(qubit_row['Original Sample Conc.'].values[0]) if not qubit_row.empty else 0.0
             processed_records.append({
                 "Well ID": well_id,
