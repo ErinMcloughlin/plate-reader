@@ -259,7 +259,7 @@ if ts_file_1 and qb_file_1:
         st.subheader("📋 Output Matrix Data Viewer")
         status_filter = st.selectbox(
             "Filter table view display parameters:", 
-            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 50BP Samples"]
+            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples"]
         )
         
         if status_filter == "Show Only PASS Samples":
