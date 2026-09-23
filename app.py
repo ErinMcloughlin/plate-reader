@@ -334,14 +334,16 @@ if ts_file_1 and qb_file_1:
         st.subheader("📥 Download Modified Instrument Files & Audit Trail Logs")
         st.info("These files maintain the exact headers and layout rows of your first uploaded files.")
 
+        # ✅ FIX: Export instrument data using 'latin1' encoding to preserve the pure micro symbol (µ)
         ts_buffer = io.StringIO()
-        master_ts_df.to_csv(ts_buffer, index=False)
+        master_ts_df.to_csv(ts_buffer, index=False, encoding='latin1')
         ts_csv_bytes = ts_buffer.getvalue()
 
         qb_buffer = io.StringIO()
-        master_qb_df.to_csv(qb_buffer, index=False)
+        master_qb_df.to_csv(qb_buffer, index=False, encoding='latin1')
         qb_csv_bytes = qb_buffer.getvalue()
 
+        # Audit log trail can remain standard text format
         audit_csv_bytes = ""
         if is_rerun_mode and not audit_df.empty:
             audit_buffer = io.StringIO()
