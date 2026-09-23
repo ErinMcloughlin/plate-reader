@@ -132,7 +132,7 @@ def process_data(ts_df_in, qb_df_in, is_rerun_run=False):
         # Process active current metrics (including any overwritten files)
         if region_100_row.empty:
             raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values[0])
-            to_bp = region_100_row['To [bp]'].values[0
+            to_bp = region_100_row['To [bp]'].values[0]
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
