@@ -21,7 +21,7 @@ with st.container(border=True):
     with col_study:
         selected_study = st.selectbox(
             "Select Associated Study Framework:",
-            ["HALE", "Procares"],
+            ["Two Tube Kit (HALE)", "Four Tube Kits (Procares)"],
             help="Choosing a study sets the explicit upper limits. Samples breaching these points will flag warning alerts."
         )
         
