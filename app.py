@@ -137,18 +137,33 @@ if ts_file_1 and qb_file_1:
         m3.metric("❌ Failed QC Check", f_count, delta=f"-{f_count}" if f_count > 0 else None, delta_color="inverse")
         m4.metric("Avg Tube Mass Yield", f"{final_df['Total Regional Mass (ng in 50µL)'].mean():.2f} ng")
 
-        # Table Display Grid Rendering Panel 
-        st.subheader("📋 Final Consolidated Report Grid")
+        # ----------------------------------------------------
+        # 4. INTERACTIVE VIEW DROPDOWN FILTER
+        # ----------------------------------------------------
+        st.subheader("📋 Output Matrix Data Viewer")
+        status_filter = st.selectbox(
+            "Filter table view display parameters:", 
+            ["Show All Samples", "Show Only PASS Samples", "Show Only FAIL Samples"]
+        )
         
+        if status_filter == "Show Only PASS Samples":
+            filtered_display = final_df[final_df['QC Status'] == "PASS"]
+        elif status_filter == "Show Only FAIL Samples":
+            filtered_display = final_df[final_df['QC Status'] == "FAIL"]
+        else:
+            filtered_display = final_df
+
+        # Apply colorful background highlights to pass/fail status cells
         def color_qc(val):
             return 'background-color: #ffcccc; color: #cc0000; font-weight: bold' if val == 'FAIL' else 'background-color: #ccffcc; color: #006600; font-weight: bold'
 
         st.dataframe(
-            final_df.style.map(color_qc, subset=['QC Status']), 
+            filtered_display.style.map(color_qc, subset=['QC Status']), 
             use_container_width=True
         )
 
         # Generate download export system csv string layout buffer options
+        # Note: The download always exports the full sheet (including ruruns), regardless of the dropdown filter view
         csv_buffer = io.StringIO()
         final_df.to_csv(csv_buffer, index=False)
         csv_data = csv_buffer.getvalue()
@@ -163,4 +178,3 @@ if ts_file_1 and qb_file_1:
 
     except Exception as e:
         st.error(f"Processing Error: {e}")
-
