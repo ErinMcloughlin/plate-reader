@@ -177,6 +177,23 @@ if ts_file_1 and qb_file_1:
         if final_df.empty:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
             st.stop()
+        # Compute data strictly for screen visualization grid parameters
+        final_df = process_data(master_ts_df, master_qb_df)
+
+        if final_df.empty:
+            st.error("❌ No exact sample ID matches found in the data log parameters.")
+            st.stop()
+
+        # ----------------------------------------------------
+        # CRITICAL VALIDATION CHECK (INSERT THIS BLOCK HERE)
+        # ----------------------------------------------------
+        total_reported_samples = len(final_df)
+        
+        if total_reported_samples != expected_samples_count:
+            st.error(f"🚨 **Sample Count Mismatch! Processing Blocked.**")
+            st.error(f"Expected: **{expected_samples_count}** unique samples | Detected in files: **{total_reported_samples}** unique samples.")
+            st.info("💡 Please verify your input log files or update the expected sample input number above to match your run sequence layout.")
+            st.stop() # Stops execution instantly, blocking downstream dashboard elements
 
         # ----------------------------------------------------
         # 3. DASHBOARD SUMMARY PANEL
