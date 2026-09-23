@@ -182,7 +182,7 @@ if ts_file_1 and qb_file_1:
 
         qb_clean_cols = master_qb_df.columns.str.strip()
         qb_id_col_raw = find_qubit_id_col(master_qb_df)
-                qb_clean_cols = master_qb_df.columns.str.strip()
+        qb_clean_cols = master_qb_df.columns.str.strip()
         qb_id_col_raw = find_qubit_id_col(master_qb_df)
         qb_id_idx = list(master_qb_df.columns).index(qb_id_col_raw) if qb_id_col_raw else None
         qb_conc_idx = list(qb_clean_cols).index('Original Sample Conc.') if 'Original Sample Conc.' in qb_clean_cols else None
