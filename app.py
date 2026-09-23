@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="NGS Yield Calculator", page_icon="🧬", layout="wide")
+st.set_page_config(page_title="Direct ID NGS Calculator", page_icon="🧬", layout="wide")
 
-st.title("🧬 TapeStation & Qubit Mass Yield Calculator")
-st.write("Upload your data logs to calculate the total regional mass ($ng$) present in a $50\\mu L$ sample tube volume.")
+st.title("🧬 Alphanumeric Sample ID Matching Calculator")
+st.write("This app joins data logs using strict, direct text matching on your sample identity columns.")
 
-# Constants
+# Volume factor constant definition
 TOTAL_VOLUME_UL = 50.0
 
 col1, col2 = st.columns(2)
@@ -19,82 +19,92 @@ with col2:
 
 if ts_file is not None and qb_file is not None:
     try:
-        # Load TapeStation Data with Latin1 encoding to safely bypass character issues (like µ symbols)
+        # 1. Read and clean TapeStation Data
         ts_df = pd.read_csv(ts_file, encoding='latin1')
-        
-        # Clean up column headers by removing weird whitespace or hidden characters
         ts_df.columns = ts_df.columns.str.strip()
         
-        # Isolate rows marked with '% of Total' info (focusing on %cfDNA rows)
-        ts_cfdna = ts_df[ts_df['Region Comment'] == '%cfDNA'].copy()
-        if ts_cfdna.empty:
-            # Fallback if comment flags differ: grab every alternate row
-            ts_cfdna = ts_df.iloc[::2].copy()
+        # Standardize matching key formats to clean strings
+        if 'Sample Description' in ts_df.columns:
+            ts_df['Sample Description'] = ts_df['Sample Description'].astype(str).str.strip()
+        else:
+            st.error("❌ TapeStation file is missing the 'Sample Description' column.")
+            st.stop()
             
-        ts_cfdna = ts_cfdna.reset_index(drop=True)
+        # Isolate rows where tracking start window is exactly 50
+        ts_df['From [bp]'] = pd.to_numeric(ts_df['From [bp]'], errors='coerce')
+        ts_filtered = ts_df[ts_df['From [bp]'] == 50].copy()
 
-        # Load Qubit Data (using latin1 here as well just in case µ appears there too)
+        # 2. Read and clean Qubit Data
         qb_df = pd.read_csv(qb_file, encoding='latin1')
         qb_df.columns = qb_df.columns.str.strip()
-        qb_df = qb_df.dropna(subset=['Original Sample Conc.']).reset_index(drop=True)
+        
+        # Flexibly locate the Qubit identifier column (accepts 'Sample Description', 'Sample Name', or 'Sample ID')
+        qb_id_col = None
+        for col_name in ['Sample Description', 'Sample Name', 'Sample ID']:
+            if col_name in qb_df.columns:
+                qb_id_col = col_name
+                break
+                
+        if qb_id_col:
+            qb_df[qb_id_col] = qb_df[qb_id_col].astype(str).str.strip()
+            # Rename temporarily to create a perfect mirror key for pandas merge functionality
+            qb_df = qb_df.rename(columns={qb_id_col: 'Sample Description'})
+        else:
+            st.error("❌ Qubit file is missing an identifier column like 'Sample Description' or 'Sample Name'.")
+            st.stop()
+            
+        qb_df = qb_df.dropna(subset=['Original Sample Conc.'])
 
-        # Cross-verify row pairing counts
-        min_rows = min(len(ts_cfdna), len(qb_df))
+        # 3. Perform a strict inner merge matching the exact string keys
+        merged_df = pd.merge(ts_filtered, qb_df, on='Sample Description', how='inner')
+
+        if merged_df.empty:
+            st.error("❌ Failed to pair samples. No exact alphanumeric text matches were found between the files.")
+            st.info("💡 Ensure both files use identical strings (e.g., both contain 'exDNA26012358').")
+            st.stop()
+
+        # 4. Perform the mass balance calculations
+        merged_df['% of Total'] = pd.to_numeric(merged_df['% of Total'], errors='coerce')
+        merged_df['Original Sample Conc.'] = pd.to_numeric(merged_df['Original Sample Conc.'], errors='coerce')
         
-        if len(ts_cfdna) != len(qb_df):
-            st.warning(f"⚠️ Row mismatch! TapeStation regions: {len(ts_cfdna)} | Qubit samples: {len(qb_df)}. Processing first {min_rows} records.")
-        
-        # Build unified execution dataset
-        merged_records = []
-        for i in range(min_rows):
-            well_id = ts_cfdna.loc[i, 'WellId']
-            sample_desc = ts_cfdna.loc[i, 'Sample Description']
-            pct_of_total = float(ts_cfdna.loc[i, '% of Total'])
-            
-            qubit_name = qb_df.loc[i, 'Sample Name']
-            raw_qubit_conc = float(qb_df.loc[i, 'Original Sample Conc.'])
-            
-            # 1. Calculate the concentration for this specific region (ng/uL)
-            calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
-            
-            # 2. Multiply by 50uL total volume to find total mass (ng) in the tube
-            total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
-            
-            merged_records.append({
-                "Well ID": well_id,
-                "Sample Description": sample_desc,
-                "TapeStation % of Total": f"{pct_of_total}%",
-                "Qubit Tube Name": qubit_name,
-                "Raw Qubit (ng/µL)": raw_qubit_conc,
-                "Calculated Region (ng/µL)": round(calculated_ng_ul, 4),
-                "Total Regional Mass (ng in 50µL)": round(total_mass_ng, 2)
-            })
-            
-        result_df = pd.DataFrame(merged_records)
-        
-        # Summary Metrics Panel
-        st.subheader("📊 Yield Metrics Summary")
+        merged_df['Calculated Region (ng/µL)'] = merged_df['Original Sample Conc.'] * (merged_df['% of Total'] / 100.0)
+        merged_df['Total Regional Mass (ng in 50µL)'] = merged_df['Calculated Region (ng/µL)'] * TOTAL_VOLUME_UL
+
+        # Clean display presentation formatting arrays
+        display_df = pd.DataFrame({
+            "Well ID": merged_df['WellId'],
+            "Sample Description": merged_df['Sample Description'],
+            "Region Window": "50-" + merged_df['To [bp]'].astype(str) + " bp",
+            "TapeStation % of Total": merged_df['% of Total'].astype(str) + "%",
+            "Raw Qubit (ng/µL)": merged_df['Original Sample Conc.'],
+            "Calculated Region (ng/µL)": merged_df['Calculated Region (ng/µL)'].round(4),
+            "Total Regional Mass (ng in 50µL)": merged_df['Total Regional Mass (ng in 50µL)'].round(2)
+        })
+
+        # Summary Metrics Panels
+        st.subheader("📊 Cross-Matched Run Analysis Summary")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Total Samples Processed", len(result_df))
-        m2.metric("Avg Region Concentration", f"{result_df['Calculated Region (ng/µL)'].mean():.2f} ng/µL")
-        m3.metric("Avg Tube Mass Yield", f"{result_df['Total Regional Mass (ng in 50µL)'].mean():.2f} ng")
-        
-        # Interactive Grid View
-        st.subheader("📋 Final Dataset View")
-        st.dataframe(result_df, use_container_width=True)
-        
-        # Generate export CSV string buffer 
+        m1.metric("Successfully Paired Records", len(display_df))
+        m2.metric("Avg Target Pool Concentration", f"{display_df['Calculated Region (ng/µL)'].mean():.2f} ng/µL")
+        m3.metric("Avg Calculated Yield Weight", f"{display_df['Total Regional Mass (ng in 50µL)'].mean():.2f} ng")
+
+        # Display Data Spreadsheet Grid Output Panel
+        st.subheader("📋 Matched Alphanumeric Output Matrix")
+        st.dataframe(display_df, use_container_width=True)
+
+        # Generate download export system logic triggers
         csv_buffer = io.StringIO()
-        result_df.to_csv(csv_buffer, index=False)
+        display_df.to_csv(csv_buffer, index=False)
         csv_data = csv_buffer.getvalue()
-        
+
         st.download_button(
-            label="📥 Download Total Mass Calculation CSV",
+            label="📥 Download Verified Matching Yield Matrix CSV",
             data=csv_data,
-            file_name="total_tube_mass_yields.csv",
+            file_name="matched_ngs_yield_report.csv",
             mime="text/csv"
         )
-        st.success("✅ Dataset and mass calculations generated successfully.")
-        
+        st.success("✅ Calculations executed safely on matched records data targets.")
+
     except Exception as e:
-        st.error(f"Execution Error occurred processing data layouts: {e}")
+        st.error(f"Processing Error: {e}")
+
