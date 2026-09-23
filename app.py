@@ -361,4 +361,4 @@ if ts_file_1 and qb_file_1:
                 
         st.success("✅ Output matrices and validation trace files generated successfully.")
 
-except Exception as e:st.error(f"Processing Error: {e}")
+    except Exception as e:st.error(f"Processing Error: {e}")
