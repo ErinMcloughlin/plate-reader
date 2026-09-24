@@ -460,7 +460,7 @@ if ts_file_1 and qb_file_1:
         st.dataframe(
             filtered_display.style.apply(color_qc_row, axis=1), 
             use_container_width=True,
-            height=600
+            height=500
         )
 
 
