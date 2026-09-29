@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import io
 import numpy as np
-import re
 
 st.set_page_config(page_title="TapeStation_Qubit_Analysis", page_icon="🧬", layout="wide")
 
@@ -466,13 +465,10 @@ if ts_file_1 and qb_file_1:
         samples_to_repeat_count = len(final_df[final_df['QC Status'].isin(["FAIL", "MISSING 100BP"])])
 
         if is_rerun_mode:
-            # Rerun dashboard: upper-limit tiles removed, NO REPEAT NEEDED added
-            m1, m2, m3, m4, m5 = st.columns(5)
+            # Rerun dashboard: only total samples and samples to repeat
+            m1, m2 = st.columns(2)
             m1.metric("Total Reported Samples", len(final_df))
-            m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
-            m3.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
-            m4.metric("🔵 No Repeat Needed", len(final_df[final_df['QC Status'] == "NO REPEAT NEEDED"]))
-            m5.metric("🛑 Samples to Repeat", samples_to_repeat_count)
+            m2.metric("🛑 Samples to Repeat", samples_to_repeat_count)
         else:
             # Initial run dashboard: unchanged
             m1, m2, m3, m4, m5, m6 = st.columns(6)
@@ -565,10 +561,10 @@ if ts_file_1 and qb_file_1:
                     if mass_idx != -1 and float(row['Total Regional Mass (ng in 50µL)']) <= 10.0:
                         styles[mass_idx] = fail_cell_style
 
-                # Highlight the %CV if either instrument breached the %CV limit
+                # Highlight the %CV in red for every sample that failed again after a rerun
                 if cv_idx != -1:
-                    cv_values = [float(v) for v in re.findall(r'(\d+(?:\.\d+)?)%', str(row['Calculated %CV (Reruns)']))]
-                    if any(v >= CV_LIMIT for v in cv_values):
+                    cv_text = str(row['Calculated %CV (Reruns)']).strip()
+                    if cv_text and "Not in rerun files" not in cv_text:
                         styles[cv_idx] = fail_cell_style
             else:
                 # ---- ALL OTHER SAMPLES: keep the existing upper-limit highlighting ----
