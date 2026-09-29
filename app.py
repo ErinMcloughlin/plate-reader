@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="TestTapeStation_Qubit_Analysis", page_icon="🧬", layout="wide")
+st.set_page_config(page_title="TapeStation_Qubit_Analysis", page_icon="🧬", layout="wide")
 
 # ====================================================
 # 1. USER VALIDATION CONSTRAINTS & THRESHOLDS SETUP
