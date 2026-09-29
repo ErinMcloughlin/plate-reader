@@ -124,17 +124,13 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
         region_100_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 100]
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
-        well_id = sample_ts_rows['WellId'].values if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
+        # Protected index lookup for scalar conversions
+        well_id = sample_ts_rows['WellId'].iloc[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
         cv_display_val = calculated_cv_map.get(sample_id, "")
 
         if region_100_row.empty:
-            raw_qubit = float(qubit_row['Original Sample Conc.'].values) if not qubit_row.empty else 0.0
-            
-            # Check for overridden status assignments from rerun files
-            if sample_id in status_overrides:
-                current_qc = status_overrides[sample_id]
-            else:
-                current_qc = "MISSING 100BP"
+            raw_qubit = float(qubit_row['Original Sample Conc.'].iloc[0]) if not qubit_row.empty else 0.0
+            current_qc = status_overrides.get(sample_id, "MISSING 100BP")
 
             processed_records.append({
                 "Well ID": well_id,
@@ -152,13 +148,13 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
 
         if not qubit_row.empty:
             try:
-                pct_val = region_100_row['% of Total'].values
+                pct_val = region_100_row['% of Total'].iloc[0]
                 pct_of_total = float(pct_val) if pd.notna(pct_val) and str(pct_val).strip() != "" else 0.0
             except:
                 pct_of_total = 0.0
                 
-            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values)
-            to_bp = region_100_row['To [bp]'].values
+            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].iloc[0])
+            to_bp = region_100_row['To [bp]'].iloc[0] if 'To [bp]' in region_100_row.columns else ""
             
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
             total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
@@ -172,7 +168,7 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
                 tapestation_limit = 92.89
 
             try:
-                avg_size_val = region_100_row['Average Size [bp]'].values
+                avg_size_val = region_100_row['Average Size [bp]'].iloc[0]
                 avg_size = float(avg_size_val) if pd.notna(avg_size_val) and str(avg_size_val).strip() != "" else 0.0
             except:
                 avg_size = 0.0
@@ -213,11 +209,9 @@ if ts_file_1 and qb_file_1:
         master_ts_df = pd.read_csv(ts_file_1, encoding='latin1')
         master_qb_df = pd.read_csv(qb_file_1, encoding='latin1')
 
-        # Dictionaries to track decoupled metadata logic without column typing conflicts
         pipeline_status_overrides = {}
         pipeline_cv_reporting = {}
 
-        # Compute initial run baseline failures to register historic dropouts
         baseline_df = process_data(master_ts_df, master_qb_df)
         
         original_failures = []
@@ -238,22 +232,28 @@ if ts_file_1 and qb_file_1:
 
         is_rerun_mode = False
         audit_trail_log = []
-
-        # Dictionary to track run raw values for statistical evaluations (%CV/Outliers)
-        # Structure: { sample_id: {'ts': [r1, r2, r3], 'qb': [r1, r2, r3]} }
         sample_history = {}
 
-        # Cache baseline round metrics
+        # Safe tracking collection without scalar extraction error risks
         for idx, row in master_ts_df.iterrows():
             if pd.to_numeric(row['From [bp]'], errors='coerce') == 100:
                 s_id = str(row['Sample Description']).strip()
                 if s_id in original_failures:
-                    sample_history[s_id] = {'ts': [float(row['% of Total'])], 'qb': []}
+                    if s_id not in sample_history:
+                        sample_history[s_id] = {'ts': [], 'qb': []}
+                    sample_history[s_id]['ts'].append(float(row['% of Total']))
 
         for idx, row in master_qb_df.iterrows():
             s_id = str(row[qb_id_col_raw]).strip()
             if s_id in sample_history:
                 sample_history[s_id]['qb'].append(float(row['Original Sample Conc.']))
+
+        # Ensure multi-entry logs choose only the first index safely
+        for s_id in sample_history:
+            if len(sample_history[s_id]['ts']) > 1:
+                sample_history[s_id]['ts'] = [sample_history[s_id]['ts'][0]]
+            if len(sample_history[s_id]['qb']) > 1:
+                sample_history[s_id]['qb'] = [sample_history[s_id]['qb'][0]]
 
         # ----------------------------------------------------
         # ROUND 2 PROCESSING (RERUN 1)
@@ -278,7 +278,7 @@ if ts_file_1 and qb_file_1:
 
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) &                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
-                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values
+                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].iloc[0]
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
                     audit_trail_log.append({
@@ -300,7 +300,7 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values
+                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].iloc[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
                     audit_trail_log.append({
@@ -312,7 +312,6 @@ if ts_file_1 and qb_file_1:
                         "New Value": f"{new_conc} ng/µL"
                     })
 
-            # Check %CV thresholds after Round 2 imports
             for s_id, metrics in sample_history.items():
                 if len(metrics['ts']) == 2 and len(metrics['qb']) == 2:
                     ts_mean = np.mean(metrics['ts'])
@@ -321,10 +320,8 @@ if ts_file_1 and qb_file_1:
                     qb_mean = np.mean(metrics['qb'])
                     qb_cv = (np.std(metrics['qb'], ddof=1) / qb_mean) * 100 if qb_mean > 0 else 0
                     
-                    # Store descriptive report tracking string text data
                     pipeline_cv_reporting[s_id] = f"TS: {ts_cv:.1f}% | QB: {qb_cv:.1f}%"
                     
-                    # If BOTH metrics exhibit highly close variance alignment (<20%), lock down rerun logic
                     if ts_cv < 20.0 and qb_cv < 20.0:
                         pipeline_status_overrides[s_id] = "NO REPEAT NEEDED"
                         audit_trail_log.append({
@@ -365,7 +362,6 @@ if ts_file_1 and qb_file_1:
                 if sample_id in sample_history and len(sample_history[sample_id]['qb']) < 3:
                     sample_history[sample_id]['qb'].append(new_conc)
 
-            # Evaluate Round 3 data using Outlier filtering rules
             for s_id, metrics in sample_history.items():
                 if len(metrics['ts']) == 3 and len(metrics['qb']) == 3:
                     
@@ -380,12 +376,10 @@ if ts_file_1 and qb_file_1:
                     final_ts_avg, ts_outlier, rem_ts = filter_outlier_and_average(metrics['ts'])
                     final_qb_avg, qb_outlier, rem_qb = filter_outlier_and_average(metrics['qb'])
 
-                    # Recalculate %CV based exclusively on the clean pair remaining values
                     ts_cv = (np.std(rem_ts, ddof=1) / final_ts_avg) * 100 if final_ts_avg > 0 else 0
                     qb_cv = (np.std(rem_qb, ddof=1) / final_qb_avg) * 100 if final_qb_avg > 0 else 0
                     pipeline_cv_reporting[s_id] = f"TS: {ts_cv:.1f}% | QB: {qb_cv:.1f}% (Outliers Dropped)"
 
-                    # Overwrite master tracking array tables with final outlier-scrubbed average results
                     ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == s_id) &                               (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                     if ts_mask.any():
                         master_ts_df.iloc[ts_mask, ts_pct_idx] = final_ts_avg
@@ -410,9 +404,6 @@ if ts_file_1 and qb_file_1:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
             st.stop()
 
-        # ----------------------------------------------------
-        # 🔄 UPGRADED INTEGRATED RECOVERY ASSESSMENT ENGINE
-        # ----------------------------------------------------
         final_df['Is Originally Failed'] = final_df['Sample Description'].isin(original_failures)
         
         def calculate_recovery_flag(row):
@@ -452,7 +443,6 @@ if ts_file_1 and qb_file_1:
         m4.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
         m5.metric("💥 Recovered (Above Limit)", len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")]))
         
-        # New Metric Card calculation dynamically matching active failures
         samples_to_repeat_count = len(final_df[final_df['QC Status'].isin(["FAIL", "MISSING 100BP"])])
         m6.metric("🛑 Samples to Repeat", samples_to_repeat_count)
 
@@ -461,7 +451,6 @@ if ts_file_1 and qb_file_1:
         # ----------------------------------------------------
         st.subheader("📋 Output Matrix Data Viewer")
         
-        # Re-indexed conditional dropdown filtering options
         base_filters = ["Show All Samples", "Show Only PASS Samples", "Show Only ABOVE UPPER LIMIT Samples", "Show Only RECOVERED Samples", "Show Only Samples to Repeat"]
         if is_rerun_mode:
             base_filters.insert(4, "Show Only NO REPEAT NEEDED Samples")
@@ -481,7 +470,6 @@ if ts_file_1 and qb_file_1:
         else:
             filtered_display = final_df
 
-        # If we are NOT in rerun mode, drop the Calculated %CV tracking column entirely from layout view
         if not is_rerun_mode:
             filtered_display = filtered_display.drop(columns=["Calculated %CV (Reruns)"])
 
