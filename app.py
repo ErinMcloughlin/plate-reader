@@ -89,7 +89,10 @@ def find_qubit_id_col(df):
     return None
 
 # Helper function to process data strictly for dashboard view computations
-def process_data(ts_df_in, qb_df_in):
+def process_data(ts_df_in, qb_df_in, status_overrides=None):
+    if status_overrides is None:
+        status_overrides = {}
+        
     ts_calc = ts_df_in.copy()
     ts_calc.columns = ts_calc.columns.str.strip()
     ts_calc['Sample Description'] = ts_calc['Sample Description'].astype(str).str.strip()
@@ -119,27 +122,26 @@ def process_data(ts_df_in, qb_df_in):
         region_100_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 100]
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
-        well_id = sample_ts_rows['WellId'].values if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
+        well_id = sample_ts_rows['WellId'].values[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
         
-        # Pull Custom Meta tags injected by the Rerun logic if available
-        custom_status_override = None
-        if 'QC Status' in sample_ts_rows.columns and not sample_ts_rows.empty:
-            # Safely check if there is a non-null custom status in the row
-            val = sample_ts_rows['QC Status'].dropna().values
-            if len(val) > 0 and pd.notna(val[0]):
-                custom_status_override = str(val[0])
-
         if region_100_row.empty:
             raw_qubit = float(qubit_row['Original Sample Conc.'].values[0]) if not qubit_row.empty else 0.0
+            
+            # Determine status base layout hierarchy
+            if sample_id in status_overrides:
+                qc_status = status_overrides[sample_id]
+            else:
+                qc_status = "MISSING 100BP"
+                
             processed_records.append({
-                "Well ID": well_id[0] if isinstance(well_id, np.ndarray) and len(well_id) > 0 else well_id,
+                "Well ID": well_id,
                 "Sample Description": sample_id,
                 "Region Window": "No 100bp Region Found",
                 "TapeStation % of Total": 0.0,
                 "Raw Qubit (ng/µL)": raw_qubit,
                 "Calculated Region (ng/µL)": 0.0,
                 "Total Regional Mass (ng in 50µL)": 0.0,
-                "QC Status": custom_status_override if custom_status_override else "MISSING 100BP",
+                "QC Status": qc_status,
                 "Average Size [bp]": 0.0
             })
             continue
@@ -175,8 +177,8 @@ def process_data(ts_df_in, qb_df_in):
             is_above_tapestation = pct_of_total > tapestation_limit
             is_above_size = avg_size > 350.0
 
-            if custom_status_override:
-                qc_status = custom_status_override
+            if sample_id in status_overrides:
+                qc_status = status_overrides[sample_id]
             elif pct_of_total <= 60.0 or total_mass_ng <= 10.0:
                 qc_status = "FAIL"
             elif is_above_qubit or is_above_tapestation or is_above_size:
@@ -185,7 +187,7 @@ def process_data(ts_df_in, qb_df_in):
                 qc_status = "PASS"
             
             processed_records.append({
-                "Well ID": well_id[0] if isinstance(well_id, np.ndarray) and len(well_id) > 0 else well_id,
+                "Well ID": well_id,
                 "Sample Description": sample_id,
                 "Region Window": f"100-{to_bp} bp",
                 "Average Size [bp]": round(avg_size, 1),  
@@ -206,9 +208,8 @@ if ts_file_1 and qb_file_1:
         master_ts_df = pd.read_csv(ts_file_1, encoding='latin1')
         master_qb_df = pd.read_csv(qb_file_1, encoding='latin1')
 
-        # Add tracking metadata column directly to master for persistence
-        if 'QC Status' not in master_ts_df.columns:
-            master_ts_df['QC Status'] = np.nan
+        # Dictionary to explicitly hold non-numeric pipeline string overrides
+        pipeline_status_overrides = {}
 
         # Compute initial run baseline failures to register historic dropouts
         baseline_df = process_data(master_ts_df, master_qb_df)
@@ -233,7 +234,6 @@ if ts_file_1 and qb_file_1:
         audit_trail_log = []
 
         # Dictionary to track run raw values for statistical evaluations (%CV/Outliers)
-        # Structure: { sample_id: {'ts': [r1, r2, r3], 'qb': [r1, r2, r3]} }
         sample_history = {}
 
         # Cache baseline round metrics
@@ -271,7 +271,7 @@ if ts_file_1 and qb_file_1:
 
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) &                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
-                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values
+                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
                     audit_trail_log.append({
@@ -293,7 +293,7 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values
+                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
                     audit_trail_log.append({
@@ -315,7 +315,7 @@ if ts_file_1 and qb_file_1:
                     qb_cv = (np.std(metrics['qb'], ddof=1) / qb_mean) * 100 if qb_mean > 0 else 0
                     
                     if ts_cv < 20.0 and qb_cv < 20.0:
-                        master_ts_df.loc[master_ts_df['Sample Description'].astype(str).str.strip() == s_id, 'QC Status'] = "NO REPEAT NEEDED"
+                        pipeline_status_overrides[s_id] = "NO REPEAT NEEDED"
                         audit_trail_log.append({
                             "Sample ID": s_id,
                             "Instrument File": "Pipeline Logic",
@@ -387,7 +387,9 @@ if ts_file_1 and qb_file_1:
                     })
 
         audit_df = pd.DataFrame(audit_trail_log)
-        final_df = process_data(master_ts_df, master_qb_df)
+        
+        # Build final dashboard data frame using separated state tracking dictionary
+        final_df = process_data(master_ts_df, master_qb_df, status_overrides=pipeline_status_overrides)
 
         if final_df.empty:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
@@ -423,7 +425,7 @@ if ts_file_1 and qb_file_1:
             st.stop()
 
         # ----------------------------------------------------
-        # 3. DASHBOARD SUMMARY PANEL
+        # 3. DASHBOARD SUMMARY PANEL (KPI LAYOUT ADJUSTED)
         # ----------------------------------------------------
         st.write("---")
         st.subheader("📊 Combined Run Analysis Summary" if is_rerun_mode else "📊 Initial Run Analysis Summary")
@@ -431,26 +433,33 @@ if ts_file_1 and qb_file_1:
         m1, m2, m3, m4, m5, m6 = st.columns(6)
         m1.metric("Total Reported Samples", len(final_df))
         m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
-        m3.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
+        m3.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
+        m4.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
         
         recovered_above_limit_count = len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")])
-        m4.metric("💥 Recovered (Above Limit)", recovered_above_limit_count)
+        m5.metric("💥 Recovered (Above Limit)", recovered_above_limit_count)
         
-        no_repeat_count = len(final_df[final_df['QC Status'] == "NO REPEAT NEEDED"])
-        m5.metric("🎯 No Repeat Needed", no_repeat_count)
-        m6.metric("❌ Failed QC Check (Active)", len(final_df[final_df['QC Status'] == "FAIL"]))
+        if is_rerun_mode:
+            no_repeat_count = len(final_df[final_df['QC Status'] == "NO REPEAT NEEDED"])
+            m6.metric("🎯 No Repeat Needed", no_repeat_count)
+        else:
+            m6.metric("❌ Failed QC Check", len(final_df[final_df['QC Status'] == "FAIL"]))
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
         # ----------------------------------------------------
         st.subheader("📋 Output Matrix Data Viewer")
-        status_filter = st.selectbox(
-            "Filter table view display parameters:", 
-            ["Show All Samples", "Show Only PASS Samples", "Show Only RECOVERED Samples", "Show Only NO REPEAT NEEDED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples", "Show Only ABOVE UPPER LIMIT Samples"]
-        )
+        
+        dropdown_options = ["Show All Samples", "Show Only PASS Samples", "Show Only ABOVE UPPER LIMIT Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples"]
+        if is_rerun_mode:
+            dropdown_options.insert(3, "Show Only NO REPEAT NEEDED Samples")
+            
+        status_filter = st.selectbox("Filter table view display parameters:", dropdown_options)
         
         if status_filter == "Show Only PASS Samples":
             filtered_display = final_df[final_df['QC Status'] == "PASS"]
+        elif status_filter == "Show Only ABOVE UPPER LIMIT Samples":
+            filtered_display = final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]
         elif status_filter == "Show Only RECOVERED Samples":
             filtered_display = final_df[(final_df['QC Status'] == "RECOVERED") | (final_df['Is Recovered'] == True)]
         elif status_filter == "Show Only NO REPEAT NEEDED Samples":
@@ -459,8 +468,6 @@ if ts_file_1 and qb_file_1:
             filtered_display = final_df[final_df['QC Status'] == "FAIL"]
         elif status_filter == "Show Only MISSING 100BP Samples":
             filtered_display = final_df[final_df['QC Status'] == "MISSING 100BP"]
-        elif status_filter == "Show Only ABOVE UPPER LIMIT Samples":
-            filtered_display = final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]
         else:
             filtered_display = final_df
 
