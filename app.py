@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import numpy as np
+import re
 
 st.set_page_config(page_title="TapeStation_Qubit_Analysis", page_icon="🧬", layout="wide")
 
@@ -87,6 +88,25 @@ def find_qubit_id_col(df):
         if col_name in stripped_cols:
             return stripped_cols[col_name]
     return None
+
+# Helper: %CV from a list of measurements (ignores blanks/NaN). Returns None if not computable.
+def compute_cv(values):
+    clean = [float(v) for v in values if v is not None and pd.notna(v)]
+    if len(clean) < 2:
+        return None
+    mean_val = np.mean(clean)
+    if mean_val <= 0:
+        return None
+    return (np.std(clean, ddof=1) / mean_val) * 100
+
+# Helper: format %CV text the same way for every sample ("TS: x% | QB: y%")
+def format_cv(ts_cv, qb_cv, suffix=""):
+    ts_txt = f"{ts_cv:.1f}%" if ts_cv is not None else "N/A"
+    qb_txt = f"{qb_cv:.1f}%" if qb_cv is not None else "N/A"
+    return f"TS: {ts_txt} | QB: {qb_txt}{suffix}"
+
+# %CV acceptance threshold used for NO REPEAT NEEDED decisions
+CV_LIMIT = 20.0
 
 # Helper function to process data strictly for dashboard view computations
 def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=None):
@@ -232,21 +252,20 @@ if ts_file_1 and qb_file_1:
 
         is_rerun_mode = False
         audit_trail_log = []
-        sample_history = {}
+        # Track every originally failed sample (including MISSING 100BP) so %CV can be reported for all repeats
+        sample_history = {s_id: {'ts': [], 'qb': []} for s_id in original_failures}
 
         # Safe tracking collection without scalar extraction error risks
         for idx, row in master_ts_df.iterrows():
             if pd.to_numeric(row['From [bp]'], errors='coerce') == 100:
                 s_id = str(row['Sample Description']).strip()
-                if s_id in original_failures:
-                    if s_id not in sample_history:
-                        sample_history[s_id] = {'ts': [], 'qb': []}
-                    sample_history[s_id]['ts'].append(float(row['% of Total']))
+                if s_id in sample_history:
+                    sample_history[s_id]['ts'].append(pd.to_numeric(row['% of Total'], errors='coerce'))
 
         for idx, row in master_qb_df.iterrows():
             s_id = str(row[qb_id_col_raw]).strip()
             if s_id in sample_history:
-                sample_history[s_id]['qb'].append(float(row['Original Sample Conc.']))
+                sample_history[s_id]['qb'].append(pd.to_numeric(row['Original Sample Conc.'], errors='coerce'))
 
         # Ensure multi-entry logs choose only the first index safely
         for s_id in sample_history:
@@ -313,16 +332,16 @@ if ts_file_1 and qb_file_1:
                     })
 
             for s_id, metrics in sample_history.items():
-                if len(metrics['ts']) == 2 and len(metrics['qb']) == 2:
-                    ts_mean = np.mean(metrics['ts'])
-                    ts_cv = (np.std(metrics['ts'], ddof=1) / ts_mean) * 100 if ts_mean > 0 else 0
-                    
-                    qb_mean = np.mean(metrics['qb'])
-                    qb_cv = (np.std(metrics['qb'], ddof=1) / qb_mean) * 100 if qb_mean > 0 else 0
-                    
-                    pipeline_cv_reporting[s_id] = f"TS: {ts_cv:.1f}% | QB: {qb_cv:.1f}%"
-                    
-                    if ts_cv < 20.0 and qb_cv < 20.0:
+                # Report %CV for EVERY rerun sample (repeat or no-repeat) whenever at least one instrument has 2 readings
+                ts_cv = compute_cv(metrics['ts'][:2])
+                qb_cv = compute_cv(metrics['qb'][:2])
+                if ts_cv is None and qb_cv is None:
+                    continue
+
+                pipeline_cv_reporting[s_id] = format_cv(ts_cv, qb_cv)
+
+                if ts_cv is not None and qb_cv is not None:
+                    if ts_cv < CV_LIMIT and qb_cv < CV_LIMIT:
                         pipeline_status_overrides[s_id] = "NO REPEAT NEEDED"
                         audit_trail_log.append({
                             "Sample ID": s_id,
@@ -420,6 +439,14 @@ if ts_file_1 and qb_file_1:
             
         final_df['QC Status'] = final_df.apply(resolve_status_hierarchy, axis=1)
 
+        # Repeat samples that have no rerun data yet still get a %CV entry so the column is never blank
+        if is_rerun_mode:
+            repeat_no_cv_mask = (
+                final_df['QC Status'].isin(['FAIL', 'MISSING 100BP'])
+                & (final_df['Calculated %CV (Reruns)'].astype(str).str.strip() == "")
+            )
+            final_df.loc[repeat_no_cv_mask, 'Calculated %CV (Reruns)'] = "TS: N/A | QB: N/A (Not in rerun files)"
+
         # ----------------------------------------------------
         # CRITICAL VALIDATION CHECK
         # ----------------------------------------------------
@@ -509,12 +536,38 @@ if ts_file_1 and qb_file_1:
             else:
                 qubit_limit, ts_limit = 3.68, 92.89
 
-            if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > qubit_limit:
-                styles[qubit_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
-            if tapestation_idx != -1 and float(row['TapeStation % of Total']) > ts_limit:
-                styles[tapestation_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
-            if size_idx != -1 and float(row['Average Size [bp]']) > 350.0:
-                styles[size_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
+            fail_cell_style = 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
+            missing_cell_style = 'background-color: #ffe6cc; color: #cc6600; font-weight: bold;'
+            upper_cell_style = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
+
+            if qc_status in ['FAIL', 'MISSING 100BP']:
+                # ---- SAMPLES TO REPEAT: highlight only the value(s) causing the failure ----
+                mass_idx = cols.index('Total Regional Mass (ng in 50µL)') if 'Total Regional Mass (ng in 50µL)' in cols else -1
+                region_idx = cols.index('Region Window') if 'Region Window' in cols else -1
+                cv_idx = cols.index('Calculated %CV (Reruns)') if 'Calculated %CV (Reruns)' in cols else -1
+
+                if qc_status == 'MISSING 100BP':
+                    if region_idx != -1:
+                        styles[region_idx] = missing_cell_style
+                else:
+                    if tapestation_idx != -1 and float(row['TapeStation % of Total']) <= 60.0:
+                        styles[tapestation_idx] = fail_cell_style
+                    if mass_idx != -1 and float(row['Total Regional Mass (ng in 50µL)']) <= 10.0:
+                        styles[mass_idx] = fail_cell_style
+
+                # Highlight the %CV if either instrument breached the %CV limit
+                if cv_idx != -1:
+                    cv_values = [float(v) for v in re.findall(r'(\d+(?:\.\d+)?)%', str(row['Calculated %CV (Reruns)']))]
+                    if any(v >= CV_LIMIT for v in cv_values):
+                        styles[cv_idx] = fail_cell_style
+            else:
+                # ---- ALL OTHER SAMPLES: keep the existing upper-limit highlighting ----
+                if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > qubit_limit:
+                    styles[qubit_idx] = upper_cell_style
+                if tapestation_idx != -1 and float(row['TapeStation % of Total']) > ts_limit:
+                    styles[tapestation_idx] = upper_cell_style
+                if size_idx != -1 and float(row['Average Size [bp]']) > 350.0:
+                    styles[size_idx] = upper_cell_style
 
             return styles
 
