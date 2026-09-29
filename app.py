@@ -463,15 +463,25 @@ if ts_file_1 and qb_file_1:
         st.write("---")
         st.subheader("📊 Combined Run Analysis Summary" if is_rerun_mode else "📊 Initial Run Analysis Summary")
 
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("Total Reported Samples", len(final_df))
-        m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
-        m3.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
-        m4.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
-        m5.metric("💥 Recovered (Above Limit)", len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")]))
-        
         samples_to_repeat_count = len(final_df[final_df['QC Status'].isin(["FAIL", "MISSING 100BP"])])
-        m6.metric("🛑 Samples to Repeat", samples_to_repeat_count)
+
+        if is_rerun_mode:
+            # Rerun dashboard: upper-limit tiles removed, NO REPEAT NEEDED added
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Total Reported Samples", len(final_df))
+            m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
+            m3.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
+            m4.metric("🔵 No Repeat Needed", len(final_df[final_df['QC Status'] == "NO REPEAT NEEDED"]))
+            m5.metric("🛑 Samples to Repeat", samples_to_repeat_count)
+        else:
+            # Initial run dashboard: unchanged
+            m1, m2, m3, m4, m5, m6 = st.columns(6)
+            m1.metric("Total Reported Samples", len(final_df))
+            m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
+            m3.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
+            m4.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
+            m5.metric("💥 Recovered (Above Limit)", len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")]))
+            m6.metric("🛑 Samples to Repeat", samples_to_repeat_count)
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
