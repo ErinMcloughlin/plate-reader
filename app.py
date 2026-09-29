@@ -89,10 +89,12 @@ def find_qubit_id_col(df):
     return None
 
 # Helper function to process data strictly for dashboard view computations
-def process_data(ts_df_in, qb_df_in, status_overrides=None):
+def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=None):
     if status_overrides is None:
         status_overrides = {}
-        
+    if calculated_cv_map is None:
+        calculated_cv_map = {}
+
     ts_calc = ts_df_in.copy()
     ts_calc.columns = ts_calc.columns.str.strip()
     ts_calc['Sample Description'] = ts_calc['Sample Description'].astype(str).str.strip()
@@ -122,17 +124,18 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None):
         region_100_row = sample_ts_rows[sample_ts_rows['From [bp]'] == 100]
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
-        well_id = sample_ts_rows['WellId'].values[0] if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
-        
+        well_id = sample_ts_rows['WellId'].values if 'WellId' in sample_ts_rows.columns and not sample_ts_rows.empty else "N/A"
+        cv_display_val = calculated_cv_map.get(sample_id, "")
+
         if region_100_row.empty:
-            raw_qubit = float(qubit_row['Original Sample Conc.'].values[0]) if not qubit_row.empty else 0.0
+            raw_qubit = float(qubit_row['Original Sample Conc.'].values) if not qubit_row.empty else 0.0
             
-            # Determine status base layout hierarchy
+            # Check for overridden status assignments from rerun files
             if sample_id in status_overrides:
-                qc_status = status_overrides[sample_id]
+                current_qc = status_overrides[sample_id]
             else:
-                qc_status = "MISSING 100BP"
-                
+                current_qc = "MISSING 100BP"
+
             processed_records.append({
                 "Well ID": well_id,
                 "Sample Description": sample_id,
@@ -141,20 +144,21 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None):
                 "Raw Qubit (ng/µL)": raw_qubit,
                 "Calculated Region (ng/µL)": 0.0,
                 "Total Regional Mass (ng in 50µL)": 0.0,
-                "QC Status": qc_status,
-                "Average Size [bp]": 0.0
+                "QC Status": current_qc,
+                "Average Size [bp]": 0.0,
+                "Calculated %CV (Reruns)": cv_display_val
             })
             continue
 
         if not qubit_row.empty:
             try:
-                pct_val = region_100_row['% of Total'].values[0]
+                pct_val = region_100_row['% of Total'].values
                 pct_of_total = float(pct_val) if pd.notna(pct_val) and str(pct_val).strip() != "" else 0.0
             except:
                 pct_of_total = 0.0
                 
-            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values[0])
-            to_bp = region_100_row['To [bp]'].values[0]
+            raw_qubit_conc = float(qubit_row['Original Sample Conc.'].values)
+            to_bp = region_100_row['To [bp]'].values
             
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
             total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL
@@ -168,7 +172,7 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None):
                 tapestation_limit = 92.89
 
             try:
-                avg_size_val = region_100_row['Average Size [bp]'].values[0]
+                avg_size_val = region_100_row['Average Size [bp]'].values
                 avg_size = float(avg_size_val) if pd.notna(avg_size_val) and str(avg_size_val).strip() != "" else 0.0
             except:
                 avg_size = 0.0
@@ -195,7 +199,8 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None):
                 "Raw Qubit (ng/µL)": raw_qubit_conc,
                 "Calculated Region (ng/µL)": round(calculated_ng_ul, 4),
                 "Total Regional Mass (ng in 50µL)": round(total_mass_ng, 2),
-                "QC Status": qc_status
+                "QC Status": qc_status,
+                "Calculated %CV (Reruns)": cv_display_val
             })
 
     return pd.DataFrame(processed_records)
@@ -208,8 +213,9 @@ if ts_file_1 and qb_file_1:
         master_ts_df = pd.read_csv(ts_file_1, encoding='latin1')
         master_qb_df = pd.read_csv(qb_file_1, encoding='latin1')
 
-        # Dictionary to explicitly hold non-numeric pipeline string overrides
+        # Dictionaries to track decoupled metadata logic without column typing conflicts
         pipeline_status_overrides = {}
+        pipeline_cv_reporting = {}
 
         # Compute initial run baseline failures to register historic dropouts
         baseline_df = process_data(master_ts_df, master_qb_df)
@@ -234,6 +240,7 @@ if ts_file_1 and qb_file_1:
         audit_trail_log = []
 
         # Dictionary to track run raw values for statistical evaluations (%CV/Outliers)
+        # Structure: { sample_id: {'ts': [r1, r2, r3], 'qb': [r1, r2, r3]} }
         sample_history = {}
 
         # Cache baseline round metrics
@@ -271,7 +278,7 @@ if ts_file_1 and qb_file_1:
 
                 ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id) &                           (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                 if ts_mask.any():
-                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values[0]
+                    old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].values
                     master_ts_df.iloc[ts_mask, ts_pct_idx] = new_pct
                     
                     audit_trail_log.append({
@@ -293,7 +300,7 @@ if ts_file_1 and qb_file_1:
                 
                 qb_mask = (master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id)
                 if qb_mask.any():
-                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values[0]
+                    old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].values
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
                     
                     audit_trail_log.append({
@@ -314,6 +321,10 @@ if ts_file_1 and qb_file_1:
                     qb_mean = np.mean(metrics['qb'])
                     qb_cv = (np.std(metrics['qb'], ddof=1) / qb_mean) * 100 if qb_mean > 0 else 0
                     
+                    # Store descriptive report tracking string text data
+                    pipeline_cv_reporting[s_id] = f"TS: {ts_cv:.1f}% | QB: {qb_cv:.1f}%"
+                    
+                    # If BOTH metrics exhibit highly close variance alignment (<20%), lock down rerun logic
                     if ts_cv < 20.0 and qb_cv < 20.0:
                         pipeline_status_overrides[s_id] = "NO REPEAT NEEDED"
                         audit_trail_log.append({
@@ -364,11 +375,17 @@ if ts_file_1 and qb_file_1:
                         distances = np.abs(arr - median)
                         outlier_idx = np.argmax(distances)
                         remaining_values = np.delete(arr, outlier_idx)
-                        return np.mean(remaining_values), arr[outlier_idx]
+                        return np.mean(remaining_values), arr[outlier_idx], remaining_values
 
-                    final_ts_avg, ts_outlier = filter_outlier_and_average(metrics['ts'])
-                    final_qb_avg, qb_outlier = filter_outlier_and_average(metrics['qb'])
+                    final_ts_avg, ts_outlier, rem_ts = filter_outlier_and_average(metrics['ts'])
+                    final_qb_avg, qb_outlier, rem_qb = filter_outlier_and_average(metrics['qb'])
 
+                    # Recalculate %CV based exclusively on the clean pair remaining values
+                    ts_cv = (np.std(rem_ts, ddof=1) / final_ts_avg) * 100 if final_ts_avg > 0 else 0
+                    qb_cv = (np.std(rem_qb, ddof=1) / final_qb_avg) * 100 if final_qb_avg > 0 else 0
+                    pipeline_cv_reporting[s_id] = f"TS: {ts_cv:.1f}% | QB: {qb_cv:.1f}% (Outliers Dropped)"
+
+                    # Overwrite master tracking array tables with final outlier-scrubbed average results
                     ts_mask = (master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == s_id) &                               (pd.to_numeric(master_ts_df.iloc[:, ts_from_idx], errors='coerce') == 100)
                     if ts_mask.any():
                         master_ts_df.iloc[ts_mask, ts_pct_idx] = final_ts_avg
@@ -387,9 +404,7 @@ if ts_file_1 and qb_file_1:
                     })
 
         audit_df = pd.DataFrame(audit_trail_log)
-        
-        # Build final dashboard data frame using separated state tracking dictionary
-        final_df = process_data(master_ts_df, master_qb_df, status_overrides=pipeline_status_overrides)
+        final_df = process_data(master_ts_df, master_qb_df, pipeline_status_overrides, pipeline_cv_reporting)
 
         if final_df.empty:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
@@ -425,7 +440,7 @@ if ts_file_1 and qb_file_1:
             st.stop()
 
         # ----------------------------------------------------
-        # 3. DASHBOARD SUMMARY PANEL (KPI LAYOUT ADJUSTED)
+        # 3. DASHBOARD SUMMARY PANEL
         # ----------------------------------------------------
         st.write("---")
         st.subheader("📊 Combined Run Analysis Summary" if is_rerun_mode else "📊 Initial Run Analysis Summary")
@@ -435,26 +450,23 @@ if ts_file_1 and qb_file_1:
         m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
         m3.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
         m4.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
+        m5.metric("💥 Recovered (Above Limit)", len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")]))
         
-        recovered_above_limit_count = len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")])
-        m5.metric("💥 Recovered (Above Limit)", recovered_above_limit_count)
-        
-        if is_rerun_mode:
-            no_repeat_count = len(final_df[final_df['QC Status'] == "NO REPEAT NEEDED"])
-            m6.metric("🎯 No Repeat Needed", no_repeat_count)
-        else:
-            m6.metric("❌ Failed QC Check", len(final_df[final_df['QC Status'] == "FAIL"]))
+        # New Metric Card calculation dynamically matching active failures
+        samples_to_repeat_count = len(final_df[final_df['QC Status'].isin(["FAIL", "MISSING 100BP"])])
+        m6.metric("🛑 Samples to Repeat", samples_to_repeat_count)
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
         # ----------------------------------------------------
         st.subheader("📋 Output Matrix Data Viewer")
         
-        dropdown_options = ["Show All Samples", "Show Only PASS Samples", "Show Only ABOVE UPPER LIMIT Samples", "Show Only RECOVERED Samples", "Show Only FAIL Samples", "Show Only MISSING 100BP Samples"]
+        # Re-indexed conditional dropdown filtering options
+        base_filters = ["Show All Samples", "Show Only PASS Samples", "Show Only ABOVE UPPER LIMIT Samples", "Show Only RECOVERED Samples", "Show Only Samples to Repeat"]
         if is_rerun_mode:
-            dropdown_options.insert(3, "Show Only NO REPEAT NEEDED Samples")
+            base_filters.insert(4, "Show Only NO REPEAT NEEDED Samples")
             
-        status_filter = st.selectbox("Filter table view display parameters:", dropdown_options)
+        status_filter = st.selectbox("Filter table view display parameters:", base_filters)
         
         if status_filter == "Show Only PASS Samples":
             filtered_display = final_df[final_df['QC Status'] == "PASS"]
@@ -464,40 +476,45 @@ if ts_file_1 and qb_file_1:
             filtered_display = final_df[(final_df['QC Status'] == "RECOVERED") | (final_df['Is Recovered'] == True)]
         elif status_filter == "Show Only NO REPEAT NEEDED Samples":
             filtered_display = final_df[final_df['QC Status'] == "NO REPEAT NEEDED"]
-        elif status_filter == "Show Only FAIL Samples":
-            filtered_display = final_df[final_df['QC Status'] == "FAIL"]
-        elif status_filter == "Show Only MISSING 100BP Samples":
-            filtered_display = final_df[final_df['QC Status'] == "MISSING 100BP"]
+        elif status_filter == "Show Only Samples to Repeat":
+            filtered_display = final_df[final_df['QC Status'].isin(["FAIL", "MISSING 100BP"])]
         else:
             filtered_display = final_df
 
+        # If we are NOT in rerun mode, drop the Calculated %CV tracking column entirely from layout view
+        if not is_rerun_mode:
+            filtered_display = filtered_display.drop(columns=["Calculated %CV (Reruns)"])
+
         def color_qc_row(row):
             styles = [''] * len(row)
-            qc_status = row['QC Status']
-            is_recovered_flag = row['Is Recovered']
-            
             cols = list(row.index)
-            status_idx = cols.index('QC Status') if 'QC Status' in cols else -1
+            
+            if 'QC Status' not in cols:
+                return styles
+                
+            qc_status = row['QC Status']
+            is_recovered_flag = row.get('Is Recovered', False)
+            
+            status_idx = cols.index('QC Status')
             qubit_idx = cols.index('Raw Qubit (ng/µL)') if 'Raw Qubit (ng/µL)' in cols else -1
             tapestation_idx = cols.index('TapeStation % of Total') if 'TapeStation % of Total' in cols else -1
             size_idx = cols.index('Average Size [bp]') if 'Average Size [bp]' in cols else -1
 
-            if status_idx != -1:
-                if qc_status == 'FAIL':
-                    styles[status_idx] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
-                elif qc_status == 'PASS':
-                    styles[status_idx] = 'background-color: #ccffcc; color: #006600; font-weight: bold;'
-                elif qc_status == 'RECOVERED':
-                    styles[status_idx] = 'background-color: #e6f7ff; color: #0050b3; font-weight: bold;'
-                elif qc_status == 'NO REPEAT NEEDED':
-                    styles[status_idx] = 'background-color: #eaf2ff; color: #106ba3; font-weight: bold; border: 1px dashed #106ba3;'
-                elif qc_status == 'MISSING 100BP':
-                    styles[status_idx] = 'background-color: #ffe6cc; color: #cc6600; font-weight: bold;'
-                elif qc_status == 'ABOVE UPPER LIMIT':
-                    if is_recovered_flag:
-                        styles[status_idx] = 'background-color: #fff2cc; color: #4a148c; font-weight: bold; border: 2px solid #4a148c;'
-                    else:
-                        styles[status_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
+            if qc_status == 'FAIL':
+                styles[status_idx] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
+            elif qc_status == 'PASS':
+                styles[status_idx] = 'background-color: #ccffcc; color: #006600; font-weight: bold;'
+            elif qc_status == 'RECOVERED':
+                styles[status_idx] = 'background-color: #e6f7ff; color: #0050b3; font-weight: bold;'
+            elif qc_status == 'NO REPEAT NEEDED':
+                styles[status_idx] = 'background-color: #eaf2ff; color: #106ba3; font-weight: bold; border: 1px dashed #106ba3;'
+            elif qc_status == 'MISSING 100BP':
+                styles[status_idx] = 'background-color: #ffe6cc; color: #cc6600; font-weight: bold;'
+            elif qc_status == 'ABOVE UPPER LIMIT':
+                if is_recovered_flag:
+                    styles[status_idx] = 'background-color: #fff2cc; color: #4a148c; font-weight: bold; border: 2px solid #4a148c;'
+                else:
+                    styles[status_idx] = 'background-color: #fff2cc; color: #d68100; font-weight: bold;'
 
             if "HALE" in selected_study:
                 qubit_limit, ts_limit = 1.318, 89.69
