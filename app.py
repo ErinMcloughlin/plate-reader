@@ -531,13 +531,11 @@ if ts_file_1 and qb_file_1:
             m2.metric("🛑 Samples to Repeat", samples_to_repeat_count)
         else:
             # Initial run dashboard: unchanged
-            m1, m2, m3, m4, m5, m6 = st.columns(6)
+            m1, m2, m3, m4 = st.columns(4)
             m1.metric("Total Reported Samples", len(final_df))
             m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
             m3.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
-            m4.metric("🚀 Recovered (Clean Pass)", len(final_df[final_df['QC Status'] == "RECOVERED"]))
-            m5.metric("💥 Recovered (Above Limit)", len(final_df[(final_df['Is Recovered'] == True) & (final_df['QC Status'] == "ABOVE UPPER LIMIT")]))
-            m6.metric("🛑 Samples to Repeat", samples_to_repeat_count)
+            m4.metric("🛑 Samples to Repeat", samples_to_repeat_count)
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
