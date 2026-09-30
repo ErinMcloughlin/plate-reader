@@ -48,7 +48,7 @@ st.write("Upload your data logs below. Providing rerun files for Round 2 or Roun
 
 # Constants
 TOTAL_VOLUME_UL = 50.0
-QUBIT_MIN_TOTAL_NG = 10.0   # Qubit pass: Original Sample Conc. x 50 µL must be >= 10 ng
+MIN_TOTAL_MASS_NG = 10.0    # Mass pass: Total Regional Mass (Qubit x TapeStation % of Total x 50 µL) must be >= 10 ng
 REGION_FROM_BP = 100        # TapeStation region row to use: the one whose "From [bp]" equals this value
 
 # ----------------------------------------------------
@@ -203,7 +203,7 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
                 pass
             
             calculated_ng_ul = raw_qubit_conc * (pct_of_total / 100.0)
-            total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL   # informational only, not used for pass/fail
+            total_mass_ng = calculated_ng_ul * TOTAL_VOLUME_UL   # used for pass/fail (must be >= MIN_TOTAL_MASS_NG)
             qubit_total_ng = raw_qubit_conc * TOTAL_VOLUME_UL
             
             # --- STUDY UPPER LIMIT CONTROL EVALUATIONS ---
@@ -226,7 +226,7 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
 
             if sample_id in status_overrides:
                 qc_status = status_overrides[sample_id]
-            elif pct_of_total <= 60.0 or qubit_total_ng < QUBIT_MIN_TOTAL_NG:
+            elif pct_of_total <= 60.0 or total_mass_ng < MIN_TOTAL_MASS_NG:
                 qc_status = "FAIL"
             elif is_above_qubit or is_above_tapestation or is_above_size:
                 qc_status = "ABOVE UPPER LIMIT"
@@ -611,7 +611,7 @@ if ts_file_1 and qb_file_1:
 
             if qc_status in ['FAIL', 'FINAL FAIL']:
                 # ---- SAMPLES TO REPEAT / FINAL FAILS: highlight only the value(s) causing the failure ----
-                mass_idx = cols.index('Qubit Total (ng in 50µL)') if 'Qubit Total (ng in 50µL)' in cols else -1
+                mass_idx = cols.index('Total Regional Mass (ng in 50µL)') if 'Total Regional Mass (ng in 50µL)' in cols else -1
                 region_idx = cols.index('Region Window') if 'Region Window' in cols else -1
                 cv_idx = cols.index('Calculated %CV (Reruns)') if 'Calculated %CV (Reruns)' in cols else -1
 
@@ -621,7 +621,7 @@ if ts_file_1 and qb_file_1:
                 else:
                     if tapestation_idx != -1 and float(row['TapeStation % of Total']) <= 60.0:
                         styles[tapestation_idx] = fail_cell_style
-                    if mass_idx != -1 and float(row['Qubit Total (ng in 50µL)']) < QUBIT_MIN_TOTAL_NG:
+                    if mass_idx != -1 and float(row['Total Regional Mass (ng in 50µL)']) < MIN_TOTAL_MASS_NG:
                         styles[mass_idx] = fail_cell_style
 
                 # Highlight the %CV in red for every sample that failed again after a rerun
