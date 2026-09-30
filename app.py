@@ -49,6 +49,7 @@ st.write("Upload your data logs below. Providing rerun files for Round 2 or Roun
 # Constants
 TOTAL_VOLUME_UL = 50.0
 QUBIT_MIN_TOTAL_NG = 10.0   # Qubit pass: Original Sample Conc. x 50 µL must be >= 10 ng
+REGION_FROM_BP = 100        # TapeStation region row to use: the one whose "From [bp]" equals this value
 
 # ----------------------------------------------------
 # 1. UI UPLOADER LAYOUT (EXPANDED TO 6 FILES)
@@ -113,12 +114,12 @@ def format_cv(ts_cv, qb_cv, suffix=""):
     qb_txt = f"{qb_cv:.1f}%" if qb_cv is not None else "N/A"
     return f"TS: {ts_txt} | QB: {qb_txt}{suffix}"
 
-# Helper: marks the first TapeStation region row for each sample (any bp range, no 100 bp requirement)
+# Helper: marks, for each sample, the TapeStation region row whose "From [bp]" equals REGION_FROM_BP (100 bp)
 def first_region_mask(df, desc_idx, from_idx):
     desc = df.iloc[:, desc_idx].astype(str).str.strip()
     frm = pd.to_numeric(df.iloc[:, from_idx], errors='coerce')
     mask = pd.Series(False, index=df.index)
-    first_idx = desc[frm.notna()].drop_duplicates(keep='first').index
+    first_idx = desc[frm == REGION_FROM_BP].drop_duplicates(keep='first').index
     mask.loc[first_idx] = True
     return mask
 
@@ -158,8 +159,8 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
             continue
             
         sample_ts_rows = ts_calc[ts_calc['Sample Description'] == sample_id]
-        # Use the sample's region row (first region listed), whatever its bp range
-        region_100_row = sample_ts_rows[sample_ts_rows['From [bp]'].notna()].head(1)
+        # Use the sample's region row that starts at REGION_FROM_BP (100 bp)
+        region_100_row = sample_ts_rows[sample_ts_rows['From [bp]'] == REGION_FROM_BP].head(1)
         qubit_row = qb_calc[qb_calc['Sample Description'] == sample_id]
         
         # Protected index lookup for scalar conversions
