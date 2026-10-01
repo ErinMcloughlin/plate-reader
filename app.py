@@ -565,24 +565,18 @@ if ts_file_1 and qb_file_1:
         st.subheader("📊 Combined Run Analysis Summary" if is_rerun_mode else "📊 Initial Run Analysis Summary")
 
         samples_to_repeat_count = len(final_df[final_df['QC Status'] == 'FAIL'])
-        above_3sd_count = int(
-            ((final_df['QC Status'] == 'FAIL') & (final_df['Raw Qubit (ng/µL)'] > QUBIT_3SD_LIMIT)).sum()
-        )
 
         if is_rerun_mode:
             # Rerun dashboard: only total samples and samples to repeat
-            m1, m2, m3 = st.columns(3)
+            m1, m2 = st.columns(2)
             m1.metric("Total Reported Samples", len(final_df))
             m2.metric("🛑 Samples to Repeat", samples_to_repeat_count)
-            m3.metric("📈 Qubit 3SD Outliers (Repeat)", above_3sd_count)
         else:
             # Initial run dashboard
-            m1, m2, m3, m4, m5 = st.columns(5)
+            m1, m2, m3 = st.columns(3)
             m1.metric("Total Reported Samples", len(final_df))
             m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
-            m3.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
-            m4.metric("🛑 Samples to Repeat", samples_to_repeat_count)
-            m5.metric("📈 Qubit 3SD Outliers (Repeat)", above_3sd_count)
+            m3.metric("🛑 Samples to Repeat", samples_to_repeat_count)
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
