@@ -14,7 +14,12 @@ QUBIT_3SD_LIMIT = 12.18          # Samples with Raw Qubit above this are flagged
 # Qubit level used for the run-level review check depends on the study selected:
 #   Two Tube Kit (HALE) -> 1.318 ng/µL | Four Tube Kits (Procares) -> 3.68 ng/µL
 RUN_REVIEW_QUBIT_LIMITS = {"HALE": 1.318, "Procares": 3.68}
-RUN_REVIEW_FRACTION = 0.10       # Run flagged if MORE than 10% of samples exceed RUN_REVIEW_QUBIT_LIMIT
+# TapeStation % of Total level used for the run-level review check:
+#   Two Tube Kit (HALE) -> 89.69% | Four Tube Kits (Procares) -> 92.89%
+RUN_REVIEW_TS_LIMITS = {"HALE": 89.69, "Procares": 92.89}
+# Run flagged if MORE than 10% of samples exceed the Qubit limit, OR MORE than 10% exceed the
+# TapeStation limit. The two percentages are calculated independently and never combined.
+RUN_REVIEW_FRACTION = 0.10
 
 # ====================================================
 # 1. USER VALIDATION CONSTRAINTS & THRESHOLDS SETUP
@@ -43,9 +48,11 @@ with st.container(border=True):
         if "HALE" in selected_study:
             q_lim, ts_lim = "1.318 ng/µL", "89.69%"
             RUN_REVIEW_QUBIT_LIMIT = RUN_REVIEW_QUBIT_LIMITS["HALE"]
+            RUN_REVIEW_TS_LIMIT = RUN_REVIEW_TS_LIMITS["HALE"]
         else:
             q_lim, ts_lim = "3.68 ng/µL", "92.89%"
             RUN_REVIEW_QUBIT_LIMIT = RUN_REVIEW_QUBIT_LIMITS["Procares"]
+            RUN_REVIEW_TS_LIMIT = RUN_REVIEW_TS_LIMITS["Procares"]
             
         st.markdown(f"""
         <div style="background-color: #f8f9fa; padding: 12px; border-radius: 5px; border-left: 4px solid #0288d1; margin-top: 5px;">
@@ -54,7 +61,7 @@ with st.container(border=True):
             <p style="margin: 2px 0 0 0; font-size: 12px; color: #333;"><b>TapeStation % of Total Limit:</b> Above {ts_lim}</p>
             <p style="margin: 2px 0 0 0; font-size: 12px; color: #333;"><b>Average Size [bp] Limit:</b> Above 350 bp</p>
             <p style="margin: 2px 0 0 0; font-size: 12px; color: #cc0000;"><b>Qubit 3SD Outlier (Rerun):</b> Above {QUBIT_3SD_LIMIT} ng/µL</p>
-            <p style="margin: 2px 0 0 0; font-size: 12px; color: #cc0000;"><b>Run Review:</b> More than {RUN_REVIEW_FRACTION:.0%} of samples above {RUN_REVIEW_QUBIT_LIMIT} ng/µL</p>
+            <p style="margin: 2px 0 0 0; font-size: 12px; color: #cc0000;"><b>Run Review:</b> More than {RUN_REVIEW_FRACTION:.0%} of samples above {RUN_REVIEW_QUBIT_LIMIT} ng/µL (Qubit) or above {RUN_REVIEW_TS_LIMIT}% (TapeStation), checked separately</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -288,14 +295,19 @@ if ts_file_1 and qb_file_1:
             ]['Sample Description'].tolist()
 
         # --- RUN-LEVEL REVIEW CHECK (evaluated on the initial run input) ---
-        run_review_required = False
-        run_review_count = 0
+        # Qubit and TapeStation are evaluated independently; each has its own 10% check.
         run_review_total = len(baseline_df)
-        run_review_pct = 0.0
+        qb_review_count, qb_review_pct, qb_review_flag = 0, 0.0, False
+        ts_review_count, ts_review_pct, ts_review_flag = 0, 0.0, False
         if run_review_total > 0:
-            run_review_count = int((baseline_df['Raw Qubit (ng/µL)'] > RUN_REVIEW_QUBIT_LIMIT).sum())
-            run_review_pct = run_review_count / run_review_total
-            run_review_required = run_review_pct > RUN_REVIEW_FRACTION
+            qb_review_count = int((baseline_df['Raw Qubit (ng/µL)'] > RUN_REVIEW_QUBIT_LIMIT).sum())
+            qb_review_pct = qb_review_count / run_review_total
+            qb_review_flag = qb_review_pct > RUN_REVIEW_FRACTION
+
+            ts_review_count = int((baseline_df['TapeStation % of Total'] > RUN_REVIEW_TS_LIMIT).sum())
+            ts_review_pct = ts_review_count / run_review_total
+            ts_review_flag = ts_review_pct > RUN_REVIEW_FRACTION
+        run_review_required = qb_review_flag or ts_review_flag
 
         ts_clean_cols = master_ts_df.columns.str.strip()
         ts_desc_idx = list(ts_clean_cols).index('Sample Description') if 'Sample Description' in ts_clean_cols else None
@@ -551,11 +563,18 @@ if ts_file_1 and qb_file_1:
         # ----------------------------------------------------
         if run_review_required:
             st.error("🚨 **Run Flagged for Technical Supervisor Review!**")
-            st.error(
-                f"**{run_review_count}** of **{run_review_total}** samples "
-                f"(**{run_review_pct:.1%}**) have a Raw Qubit above **{RUN_REVIEW_QUBIT_LIMIT} ng/µL** "
-                f"| Allowed: {RUN_REVIEW_FRACTION:.0%} or fewer."
-            )
+            if qb_review_flag:
+                st.error(
+                    f"**Qubit:** **{qb_review_count}** of **{run_review_total}** samples "
+                    f"(**{qb_review_pct:.1%}**) are above **{RUN_REVIEW_QUBIT_LIMIT} ng/µL** "
+                    f"| Allowed: {RUN_REVIEW_FRACTION:.0%} or fewer."
+                )
+            if ts_review_flag:
+                st.error(
+                    f"**TapeStation:** **{ts_review_count}** of **{run_review_total}** samples "
+                    f"(**{ts_review_pct:.1%}**) have % of Total above **{RUN_REVIEW_TS_LIMIT}%** "
+                    f"| Allowed: {RUN_REVIEW_FRACTION:.0%} or fewer."
+                )
             st.info("💡 A technical supervisor must review this run before results are released.")
 
         # ----------------------------------------------------
