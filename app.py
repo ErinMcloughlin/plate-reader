@@ -9,8 +9,8 @@ st.set_page_config(page_title="TapeStation_Qubit_Analysis", page_icon="🧬", la
 # 0. GLOBAL QUBIT OUTLIER / RUN REVIEW CONSTANTS
 # ====================================================
 # 3SD upper limit for Qubit concentration, from the raw (untransformed) historical data:
-#   n = 2,164 samples | mean = 1.659 ng/µL | SD = 3.509 ng/µL | mean + 3SD = 2.6 ng/µL
-QUBIT_3SD_LIMIT = 2.6          # Samples with Raw Qubit above this are flagged for rerun
+#   n = 2,164 samples | mean = 1.659 ng/µL | SD = 3.509 ng/µL | mean + 3SD = 12.18 ng/µL
+QUBIT_3SD_LIMIT = 12.18          # Samples with Raw Qubit above this are flagged for rerun
 # Qubit level used for the run-level review check depends on the study selected:
 #   Two Tube Kit (HALE) -> 1.318 ng/µL | Four Tube Kits (Procares) -> 3.68 ng/µL
 RUN_REVIEW_QUBIT_LIMITS = {"HALE": 1.318, "Procares": 3.68}
