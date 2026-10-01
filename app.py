@@ -6,6 +6,17 @@ import numpy as np
 st.set_page_config(page_title="TapeStation_Qubit_Analysis", page_icon="🧬", layout="wide")
 
 # ====================================================
+# 0. GLOBAL QUBIT OUTLIER / RUN REVIEW CONSTANTS
+# ====================================================
+# 3SD upper limit for Qubit concentration, from the raw (untransformed) historical data:
+#   n = 2,164 samples | mean = 1.659 ng/µL | SD = 3.509 ng/µL | mean + 3SD = 12.18 ng/µL
+QUBIT_3SD_LIMIT = 12.18          # Samples with Raw Qubit above this are flagged for rerun
+# Qubit level used for the run-level review check depends on the study selected:
+#   Two Tube Kit (HALE) -> 1.318 ng/µL | Four Tube Kits (Procares) -> 3.68 ng/µL
+RUN_REVIEW_QUBIT_LIMITS = {"HALE": 1.318, "Procares": 3.68}
+RUN_REVIEW_FRACTION = 0.10       # Run flagged if MORE than 10% of samples exceed RUN_REVIEW_QUBIT_LIMIT
+
+# ====================================================
 # 1. USER VALIDATION CONSTRAINTS & THRESHOLDS SETUP
 # ====================================================
 with st.container(border=True):
@@ -31,8 +42,10 @@ with st.container(border=True):
     with col_info:
         if "HALE" in selected_study:
             q_lim, ts_lim = "1.318 ng/µL", "89.69%"
+            RUN_REVIEW_QUBIT_LIMIT = RUN_REVIEW_QUBIT_LIMITS["HALE"]
         else:
             q_lim, ts_lim = "3.68 ng/µL", "92.89%"
+            RUN_REVIEW_QUBIT_LIMIT = RUN_REVIEW_QUBIT_LIMITS["Procares"]
             
         st.markdown(f"""
         <div style="background-color: #f8f9fa; padding: 12px; border-radius: 5px; border-left: 4px solid #0288d1; margin-top: 5px;">
@@ -40,6 +53,8 @@ with st.container(border=True):
             <p style="margin: 5px 0 0 0; font-size: 12px; color: #333;"><b>Qubit Concentration Limit:</b> Above {q_lim}</p>
             <p style="margin: 2px 0 0 0; font-size: 12px; color: #333;"><b>TapeStation % of Total Limit:</b> Above {ts_lim}</p>
             <p style="margin: 2px 0 0 0; font-size: 12px; color: #333;"><b>Average Size [bp] Limit:</b> Above 350 bp</p>
+            <p style="margin: 2px 0 0 0; font-size: 12px; color: #cc0000;"><b>Qubit 3SD Outlier (Rerun):</b> Above {QUBIT_3SD_LIMIT} ng/µL</p>
+            <p style="margin: 2px 0 0 0; font-size: 12px; color: #cc0000;"><b>Run Review:</b> More than {RUN_REVIEW_FRACTION:.0%} of samples above {RUN_REVIEW_QUBIT_LIMIT} ng/µL</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -223,10 +238,14 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
             is_above_qubit = raw_qubit_conc > qubit_limit
             is_above_tapestation = pct_of_total > tapestation_limit
             is_above_size = avg_size > 350.0
+            is_above_3sd = raw_qubit_conc > QUBIT_3SD_LIMIT
 
             if sample_id in status_overrides:
                 qc_status = status_overrides[sample_id]
             elif pct_of_total <= 60.0 or total_mass_ng < MIN_TOTAL_MASS_NG:
+                qc_status = "FAIL"
+            elif is_above_3sd:
+                # Qubit reading is a 3SD outlier vs. historical data -> flag for rerun
                 qc_status = "FAIL"
             elif is_above_qubit or is_above_tapestation or is_above_size:
                 qc_status = "ABOVE UPPER LIMIT"
@@ -267,6 +286,16 @@ if ts_file_1 and qb_file_1:
             original_failures = baseline_df[
                 baseline_df['QC Status'] == 'FAIL'
             ]['Sample Description'].tolist()
+
+        # --- RUN-LEVEL REVIEW CHECK (evaluated on the initial run input) ---
+        run_review_required = False
+        run_review_count = 0
+        run_review_total = len(baseline_df)
+        run_review_pct = 0.0
+        if run_review_total > 0:
+            run_review_count = int((baseline_df['Raw Qubit (ng/µL)'] > RUN_REVIEW_QUBIT_LIMIT).sum())
+            run_review_pct = run_review_count / run_review_total
+            run_review_required = run_review_pct > RUN_REVIEW_FRACTION
 
         ts_clean_cols = master_ts_df.columns.str.strip()
         ts_desc_idx = list(ts_clean_cols).index('Sample Description') if 'Sample Description' in ts_clean_cols else None
@@ -517,25 +546,43 @@ if ts_file_1 and qb_file_1:
             st.stop()
 
         # ----------------------------------------------------
+        # RUN-LEVEL TECHNICAL SUPERVISOR REVIEW FLAG
+        # (shown as a red bar like the sample count flag, but does NOT block processing)
+        # ----------------------------------------------------
+        if run_review_required:
+            st.error("🚨 **Run Flagged for Technical Supervisor Review!**")
+            st.error(
+                f"**{run_review_count}** of **{run_review_total}** samples "
+                f"(**{run_review_pct:.1%}**) have a Raw Qubit above **{RUN_REVIEW_QUBIT_LIMIT} ng/µL** "
+                f"| Allowed: {RUN_REVIEW_FRACTION:.0%} or fewer."
+            )
+            st.info("💡 A technical supervisor must review this run before results are released.")
+
+        # ----------------------------------------------------
         # 3. DASHBOARD SUMMARY PANEL
         # ----------------------------------------------------
         st.write("---")
         st.subheader("📊 Combined Run Analysis Summary" if is_rerun_mode else "📊 Initial Run Analysis Summary")
 
         samples_to_repeat_count = len(final_df[final_df['QC Status'] == 'FAIL'])
+        above_3sd_count = int(
+            ((final_df['QC Status'] == 'FAIL') & (final_df['Raw Qubit (ng/µL)'] > QUBIT_3SD_LIMIT)).sum()
+        )
 
         if is_rerun_mode:
             # Rerun dashboard: only total samples and samples to repeat
-            m1, m2 = st.columns(2)
+            m1, m2, m3 = st.columns(3)
             m1.metric("Total Reported Samples", len(final_df))
             m2.metric("🛑 Samples to Repeat", samples_to_repeat_count)
+            m3.metric("📈 Qubit 3SD Outliers (Repeat)", above_3sd_count)
         else:
-            # Initial run dashboard: unchanged
-            m1, m2, m3, m4 = st.columns(4)
+            # Initial run dashboard
+            m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("Total Reported Samples", len(final_df))
             m2.metric("✅ Passed QC Check", len(final_df[final_df['QC Status'] == "PASS"]))
             m3.metric("⚠️ Above Upper Limit (Total)", len(final_df[final_df['QC Status'] == "ABOVE UPPER LIMIT"]))
             m4.metric("🛑 Samples to Repeat", samples_to_repeat_count)
+            m5.metric("📈 Qubit 3SD Outliers (Repeat)", above_3sd_count)
 
         # ----------------------------------------------------
         # 4. INTERACTIVE VIEW DROPDOWN FILTER
@@ -621,6 +668,9 @@ if ts_file_1 and qb_file_1:
                         styles[tapestation_idx] = fail_cell_style
                     if mass_idx != -1 and float(row['Total Regional Mass (ng in 50µL)']) < MIN_TOTAL_MASS_NG:
                         styles[mass_idx] = fail_cell_style
+                    # Qubit 3SD outlier -> highlight the Qubit value as the reason for rerun
+                    if qubit_idx != -1 and float(row['Raw Qubit (ng/µL)']) > QUBIT_3SD_LIMIT:
+                        styles[qubit_idx] = fail_cell_style
 
                 # Highlight the %CV in red for every sample that failed again after a rerun
                 if cv_idx != -1:
