@@ -5,9 +5,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(
-    page_title="TapeStation_Qubit_Analysis", page_icon="🧬", layout="wide"
-)
+st.set_page_config(page_title="TapeStation_Qubit_Analysis", page_icon="🧬", layout="wide")
 
 # ====================================================
 # 0. GLOBAL QUBIT OUTLIER / RUN REVIEW CONSTANTS
@@ -104,9 +102,7 @@ TOTAL_VOLUME_UL = 50.0
 # Mass pass: Total Regional Mass (Qubit x TapeStation % of Total x 50 µL)
 # must be >= 10 ng
 MIN_TOTAL_MASS_NG = 10.0
-REGION_FROM_BP = (
-    100  # TapeStation region row to use: the one whose "From [bp]" equals this value
-)
+REGION_FROM_BP = 100  # TapeStation region row to use: the one whose "From [bp]" equals this value
 
 # ----------------------------------------------------
 # 1. UI UPLOADER LAYOUT (EXPANDED TO 6 FILES)
@@ -223,9 +219,7 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
 
     ts_calc = ts_df_in.copy()
     ts_calc.columns = ts_calc.columns.str.strip()
-    ts_calc["Sample Description"] = (
-        ts_calc["Sample Description"].astype(str).str.strip()
-    )
+    ts_calc["Sample Description"] = ts_calc["Sample Description"].astype(str).str.strip()
     ts_calc["From [bp]"] = pd.to_numeric(ts_calc["From [bp]"], errors="coerce")
 
     all_ts_samples = ts_calc["Sample Description"].dropna().unique()
@@ -250,9 +244,7 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
 
         sample_ts_rows = ts_calc[ts_calc["Sample Description"] == sample_id]
         # Use the sample's region row that starts at REGION_FROM_BP (100 bp)
-        region_100_row = sample_ts_rows[
-            sample_ts_rows["From [bp]"] == REGION_FROM_BP
-        ].head(1)
+        region_100_row = sample_ts_rows[sample_ts_rows["From [bp]"] == REGION_FROM_BP].head(1)
         qubit_row = qb_calc[qb_calc["Sample Description"] == sample_id]
 
         # Protected index lookup for scalar conversions
@@ -265,9 +257,7 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
 
         if region_100_row.empty:
             raw_qubit = (
-                float(qubit_row["Original Sample Conc."].iloc[0])
-                if not qubit_row.empty
-                else 0.0
+                float(qubit_row["Original Sample Conc."].iloc[0]) if not qubit_row.empty else 0.0
             )
             current_qc = status_overrides.get(sample_id, "FAIL")
 
@@ -292,19 +282,13 @@ def process_data(ts_df_in, qb_df_in, status_overrides=None, calculated_cv_map=No
             try:
                 pct_val = region_100_row["% of Total"].iloc[0]
                 pct_of_total = (
-                    float(pct_val)
-                    if pd.notna(pct_val) and str(pct_val).strip() != ""
-                    else 0.0
+                    float(pct_val) if pd.notna(pct_val) and str(pct_val).strip() != "" else 0.0
                 )
             except (KeyError, IndexError, TypeError, ValueError):
                 pct_of_total = 0.0
 
             raw_qubit_conc = float(qubit_row["Original Sample Conc."].iloc[0])
-            to_bp = (
-                region_100_row["To [bp]"].iloc[0]
-                if "To [bp]" in region_100_row.columns
-                else ""
-            )
+            to_bp = region_100_row["To [bp]"].iloc[0] if "To [bp]" in region_100_row.columns else ""
             from_bp = region_100_row["From [bp]"].iloc[0]
             from_bp = int(from_bp) if float(from_bp).is_integer() else from_bp
             with contextlib.suppress(TypeError, ValueError):
@@ -395,9 +379,7 @@ if ts_file_1 and qb_file_1:
         qb_review_count, qb_review_pct, qb_review_flag = 0, 0.0, False
         ts_review_count, ts_review_pct, ts_review_flag = 0, 0.0, False
         if run_review_total > 0:
-            qb_review_count = int(
-                (baseline_df["Raw Qubit (ng/µL)"] > RUN_REVIEW_QUBIT_LIMIT).sum()
-            )
+            qb_review_count = int((baseline_df["Raw Qubit (ng/µL)"] > RUN_REVIEW_QUBIT_LIMIT).sum())
             qb_review_pct = qb_review_count / run_review_total
             qb_review_flag = qb_review_pct > RUN_REVIEW_FRACTION
 
@@ -415,21 +397,15 @@ if ts_file_1 and qb_file_1:
             else None
         )
         ts_from_idx = (
-            list(ts_clean_cols).index("From [bp]")
-            if "From [bp]" in ts_clean_cols
-            else None
+            list(ts_clean_cols).index("From [bp]") if "From [bp]" in ts_clean_cols else None
         )
         ts_pct_idx = (
-            list(ts_clean_cols).index("% of Total")
-            if "% of Total" in ts_clean_cols
-            else None
+            list(ts_clean_cols).index("% of Total") if "% of Total" in ts_clean_cols else None
         )
 
         qb_clean_cols = master_qb_df.columns.str.strip()
         qb_id_col_raw = find_qubit_id_col(master_qb_df)
-        qb_id_idx = (
-            list(master_qb_df.columns).index(qb_id_col_raw) if qb_id_col_raw else None
-        )
+        qb_id_idx = list(master_qb_df.columns).index(qb_id_col_raw) if qb_id_col_raw else None
         qb_conc_idx = (
             list(qb_clean_cols).index("Original Sample Conc.")
             if "Original Sample Conc." in qb_clean_cols
@@ -441,16 +417,12 @@ if ts_file_1 and qb_file_1:
         if ts_pct_idx is not None:
             master_ts_df.isetitem(
                 ts_pct_idx,
-                pd.to_numeric(master_ts_df.iloc[:, ts_pct_idx], errors="coerce").astype(
-                    float
-                ),
+                pd.to_numeric(master_ts_df.iloc[:, ts_pct_idx], errors="coerce").astype(float),
             )
         if qb_conc_idx is not None:
             master_qb_df.isetitem(
                 qb_conc_idx,
-                pd.to_numeric(
-                    master_qb_df.iloc[:, qb_conc_idx], errors="coerce"
-                ).astype(float),
+                pd.to_numeric(master_qb_df.iloc[:, qb_conc_idx], errors="coerce").astype(float),
             )
 
         is_rerun_mode = False
@@ -466,9 +438,7 @@ if ts_file_1 and qb_file_1:
             s_id = str(master_ts_df.loc[idx].iloc[ts_desc_idx]).strip()
             if s_id in sample_history:
                 sample_history[s_id]["ts"].append(
-                    pd.to_numeric(
-                        master_ts_df.loc[idx].iloc[ts_pct_idx], errors="coerce"
-                    )
+                    pd.to_numeric(master_ts_df.loc[idx].iloc[ts_pct_idx], errors="coerce")
                 )
 
         for _, row in master_qb_df.iterrows():
@@ -515,8 +485,7 @@ if ts_file_1 and qb_file_1:
                     sample_history[sample_id]["ts"].append(new_pct)
 
                 ts_mask = (
-                    master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip()
-                    == sample_id
+                    master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == sample_id
                 ) & master_region_mask
                 if ts_mask.any():
                     old_pct = master_ts_df.iloc[ts_mask, ts_pct_idx].iloc[0]
@@ -528,16 +497,12 @@ if ts_file_1 and qb_file_1:
                             "Instrument File": "TapeStation",
                             "Rerun Round": "Round 2 (Rerun 1)",
                             "Parameter Updated": "% of Total (Region)",
-                            "Old Value": f"{old_pct}%"
-                            if pd.notna(old_pct)
-                            else "BLANK",
+                            "Old Value": f"{old_pct}%" if pd.notna(old_pct) else "BLANK",
                             "New Value": f"{new_pct}%",
                         }
                     )
 
-            for _, rerun_row in raw_qb_rerun_1.dropna(
-                subset=["Original Sample Conc."]
-            ).iterrows():
+            for _, rerun_row in raw_qb_rerun_1.dropna(subset=["Original Sample Conc."]).iterrows():
                 qb_rerun_id_col = find_qubit_id_col(raw_qb_rerun_1)
                 sample_id = str(rerun_row[qb_rerun_id_col]).strip()
                 new_conc = float(rerun_row["Original Sample Conc."])
@@ -545,9 +510,7 @@ if ts_file_1 and qb_file_1:
                 if sample_id in sample_history:
                     sample_history[sample_id]["qb"].append(new_conc)
 
-                qb_mask = (
-                    master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id
-                )
+                qb_mask = master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == sample_id
                 if qb_mask.any():
                     old_conc = master_qb_df.iloc[qb_mask, qb_conc_idx].iloc[0]
                     master_qb_df.iloc[qb_mask, qb_conc_idx] = new_conc
@@ -558,9 +521,7 @@ if ts_file_1 and qb_file_1:
                             "Instrument File": "Qubit",
                             "Rerun Round": "Round 2 (Rerun 1)",
                             "Parameter Updated": "Original Sample Conc. (ng/µL)",
-                            "Old Value": f"{old_conc} ng/µL"
-                            if pd.notna(old_conc)
-                            else "BLANK",
+                            "Old Value": f"{old_conc} ng/µL" if pd.notna(old_conc) else "BLANK",
                             "New Value": f"{new_conc} ng/µL",
                         }
                     )
@@ -590,17 +551,14 @@ if ts_file_1 and qb_file_1:
                             "Parameter Updated": "QC Status Designation",
                             "Old Value": "FAIL",
                             "New Value": (
-                                f"NO REPEAT NEEDED (%CV TS: {ts_cv:.1f}%, "
-                                f"QB: {qb_cv:.1f}%)"
+                                f"NO REPEAT NEEDED (%CV TS: {ts_cv:.1f}%, QB: {qb_cv:.1f}%)"
                             ),
                         }
                     )
 
                 # Any %CV at or above 20% -> automatically repeated,
                 # even if the rerun values pass QC
-                cv_breaches = [
-                    c for c in (ts_cv, qb_cv) if c is not None and c >= CV_LIMIT
-                ]
+                cv_breaches = [c for c in (ts_cv, qb_cv) if c is not None and c >= CV_LIMIT]
                 if cv_breaches:
                     pipeline_status_overrides[s_id] = "FAIL"
                     auto_repeat_samples.add(s_id)
@@ -644,23 +602,15 @@ if ts_file_1 and qb_file_1:
                 sample_id = str(rerun_row["Sample Description"]).strip()
                 new_pct = float(rerun_row["% of Total"])
 
-                if (
-                    sample_id in sample_history
-                    and len(sample_history[sample_id]["ts"]) < 3
-                ):
+                if sample_id in sample_history and len(sample_history[sample_id]["ts"]) < 3:
                     sample_history[sample_id]["ts"].append(new_pct)
 
-            for _, rerun_row in raw_qb_rerun_2.dropna(
-                subset=["Original Sample Conc."]
-            ).iterrows():
+            for _, rerun_row in raw_qb_rerun_2.dropna(subset=["Original Sample Conc."]).iterrows():
                 qb_rerun_id_col = find_qubit_id_col(raw_qb_rerun_2)
                 sample_id = str(rerun_row[qb_rerun_id_col]).strip()
                 new_conc = float(rerun_row["Original Sample Conc."])
 
-                if (
-                    sample_id in sample_history
-                    and len(sample_history[sample_id]["qb"]) < 3
-                ):
+                if sample_id in sample_history and len(sample_history[sample_id]["qb"]) < 3:
                     sample_history[sample_id]["qb"].append(new_conc)
 
             for s_id, metrics in sample_history.items():
@@ -678,23 +628,11 @@ if ts_file_1 and qb_file_1:
                             remaining_values,
                         )
 
-                    final_ts_avg, ts_outlier, rem_ts = filter_outlier_and_average(
-                        metrics["ts"]
-                    )
-                    final_qb_avg, qb_outlier, rem_qb = filter_outlier_and_average(
-                        metrics["qb"]
-                    )
+                    final_ts_avg, ts_outlier, rem_ts = filter_outlier_and_average(metrics["ts"])
+                    final_qb_avg, qb_outlier, rem_qb = filter_outlier_and_average(metrics["qb"])
 
-                    ts_cv = (
-                        (np.std(rem_ts, ddof=1) / final_ts_avg) * 100
-                        if final_ts_avg > 0
-                        else 0
-                    )
-                    qb_cv = (
-                        (np.std(rem_qb, ddof=1) / final_qb_avg) * 100
-                        if final_qb_avg > 0
-                        else 0
-                    )
+                    ts_cv = (np.std(rem_ts, ddof=1) / final_ts_avg) * 100 if final_ts_avg > 0 else 0
+                    qb_cv = (np.std(rem_qb, ddof=1) / final_qb_avg) * 100 if final_qb_avg > 0 else 0
                     pipeline_cv_reporting[s_id] = (
                         f"TS: {ts_cv:.1f}% | QB: {qb_cv:.1f}% (Outliers Dropped)"
                     )
@@ -705,15 +643,12 @@ if ts_file_1 and qb_file_1:
                     round3_samples.add(s_id)
 
                     ts_mask = (
-                        master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip()
-                        == s_id
+                        master_ts_df.iloc[:, ts_desc_idx].astype(str).str.strip() == s_id
                     ) & master_region_mask
                     if ts_mask.any():
                         master_ts_df.iloc[ts_mask, ts_pct_idx] = final_ts_avg
 
-                    qb_mask = (
-                        master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == s_id
-                    )
+                    qb_mask = master_qb_df.iloc[:, qb_id_idx].astype(str).str.strip() == s_id
                     if qb_mask.any():
                         master_qb_df.iloc[qb_mask, qb_conc_idx] = final_qb_avg
 
@@ -743,15 +678,12 @@ if ts_file_1 and qb_file_1:
             st.error("❌ No exact sample ID matches found in the data log parameters.")
             st.stop()
 
-        final_df["Is Originally Failed"] = final_df["Sample Description"].isin(
-            original_failures
-        )
+        final_df["Is Originally Failed"] = final_df["Sample Description"].isin(original_failures)
 
         def calculate_recovery_flag(row):
             return bool(
                 row["Is Originally Failed"]
-                and row["QC Status"]
-                in ["PASS", "ABOVE UPPER LIMIT", "NO REPEAT NEEDED"]
+                and row["QC Status"] in ["PASS", "ABOVE UPPER LIMIT", "NO REPEAT NEEDED"]
             )
 
         final_df["Is Recovered"] = final_df.apply(calculate_recovery_flag, axis=1)
@@ -817,10 +749,7 @@ if ts_file_1 and qb_file_1:
                     f"**{RUN_REVIEW_TS_LIMIT}%** "
                     f"| Allowed: {RUN_REVIEW_FRACTION:.0%} or fewer."
                 )
-            st.info(
-                "💡 A technical supervisor must review this run "
-                "before results are released."
-            )
+            st.info("💡 A technical supervisor must review this run before results are released.")
 
         # ----------------------------------------------------
         # 3. DASHBOARD SUMMARY PANEL
@@ -843,9 +772,7 @@ if ts_file_1 and qb_file_1:
             # Initial run dashboard
             m1, m2, m3 = st.columns(3)
             m1.metric("Total Reported Samples", len(final_df))
-            m2.metric(
-                "✅ Passed QC Check", len(final_df[final_df["QC Status"] == "PASS"])
-            )
+            m2.metric("✅ Passed QC Check", len(final_df[final_df["QC Status"] == "PASS"]))
             m3.metric("🛑 Samples to Repeat", samples_to_repeat_count)
 
         # ----------------------------------------------------
@@ -865,9 +792,7 @@ if ts_file_1 and qb_file_1:
             if (final_df["QC Status"] == "FINAL FAIL").any():
                 base_filters.append("Show Only FINAL FAIL Samples")
 
-        status_filter = st.selectbox(
-            "Filter table view display parameters:", base_filters
-        )
+        status_filter = st.selectbox("Filter table view display parameters:", base_filters)
 
         if status_filter == "Show Only PASS Samples":
             filtered_display = final_df[final_df["QC Status"] == "PASS"]
@@ -887,9 +812,7 @@ if ts_file_1 and qb_file_1:
             filtered_display = final_df
 
         if not is_rerun_mode:
-            filtered_display = filtered_display.drop(
-                columns=["Calculated %CV (Reruns)"]
-            )
+            filtered_display = filtered_display.drop(columns=["Calculated %CV (Reruns)"])
 
         def color_qc_row(row):
             styles = [""] * len(row)
@@ -902,34 +825,20 @@ if ts_file_1 and qb_file_1:
             is_recovered_flag = row.get("Is Recovered", False)
 
             status_idx = cols.index("QC Status")
-            qubit_idx = (
-                cols.index("Raw Qubit (ng/µL)") if "Raw Qubit (ng/µL)" in cols else -1
-            )
+            qubit_idx = cols.index("Raw Qubit (ng/µL)") if "Raw Qubit (ng/µL)" in cols else -1
             tapestation_idx = (
-                cols.index("TapeStation % of Total")
-                if "TapeStation % of Total" in cols
-                else -1
+                cols.index("TapeStation % of Total") if "TapeStation % of Total" in cols else -1
             )
-            size_idx = (
-                cols.index("Average Size [bp]") if "Average Size [bp]" in cols else -1
-            )
+            size_idx = cols.index("Average Size [bp]") if "Average Size [bp]" in cols else -1
 
             if qc_status == "FAIL":
-                styles[status_idx] = (
-                    "background-color: #ffcccc; color: #cc0000; font-weight: bold;"
-                )
+                styles[status_idx] = "background-color: #ffcccc; color: #cc0000; font-weight: bold;"
             elif qc_status == "FINAL FAIL":
-                styles[status_idx] = (
-                    "background-color: #cc0000; color: #ffffff; font-weight: bold;"
-                )
+                styles[status_idx] = "background-color: #cc0000; color: #ffffff; font-weight: bold;"
             elif qc_status == "PASS":
-                styles[status_idx] = (
-                    "background-color: #ccffcc; color: #006600; font-weight: bold;"
-                )
+                styles[status_idx] = "background-color: #ccffcc; color: #006600; font-weight: bold;"
             elif qc_status == "RECOVERED":
-                styles[status_idx] = (
-                    "background-color: #e6f7ff; color: #0050b3; font-weight: bold;"
-                )
+                styles[status_idx] = "background-color: #e6f7ff; color: #0050b3; font-weight: bold;"
             elif qc_status == "NO REPEAT NEEDED":
                 styles[status_idx] = (
                     "background-color: #eaf2ff; color: #106ba3; font-weight: bold; "
@@ -951,12 +860,8 @@ if ts_file_1 and qb_file_1:
             else:
                 qubit_limit, ts_limit = 3.68, 92.89
 
-            fail_cell_style = (
-                "background-color: #ffcccc; color: #cc0000; font-weight: bold;"
-            )
-            upper_cell_style = (
-                "background-color: #fff2cc; color: #d68100; font-weight: bold;"
-            )
+            fail_cell_style = "background-color: #ffcccc; color: #cc0000; font-weight: bold;"
+            upper_cell_style = "background-color: #fff2cc; color: #d68100; font-weight: bold;"
 
             if qc_status in ["FAIL", "FINAL FAIL"]:
                 # ---- SAMPLES TO REPEAT / FINAL FAILS ----
@@ -966,9 +871,7 @@ if ts_file_1 and qb_file_1:
                     if "Total Regional Mass (ng in 50µL)" in cols
                     else -1
                 )
-                region_idx = (
-                    cols.index("Region Window") if "Region Window" in cols else -1
-                )
+                region_idx = cols.index("Region Window") if "Region Window" in cols else -1
                 cv_idx = (
                     cols.index("Calculated %CV (Reruns)")
                     if "Calculated %CV (Reruns)" in cols
@@ -979,23 +882,16 @@ if ts_file_1 and qb_file_1:
                     if region_idx != -1:
                         styles[region_idx] = fail_cell_style
                 else:
-                    if (
-                        tapestation_idx != -1
-                        and float(row["TapeStation % of Total"]) <= 60.0
-                    ):
+                    if tapestation_idx != -1 and float(row["TapeStation % of Total"]) <= 60.0:
                         styles[tapestation_idx] = fail_cell_style
                     if (
                         mass_idx != -1
-                        and float(row["Total Regional Mass (ng in 50µL)"])
-                        < MIN_TOTAL_MASS_NG
+                        and float(row["Total Regional Mass (ng in 50µL)"]) < MIN_TOTAL_MASS_NG
                     ):
                         styles[mass_idx] = fail_cell_style
                     # Qubit 3SD outlier -> highlight the Qubit value
                     # as the reason for rerun
-                    if (
-                        qubit_idx != -1
-                        and float(row["Raw Qubit (ng/µL)"]) > QUBIT_3SD_LIMIT
-                    ):
+                    if qubit_idx != -1 and float(row["Raw Qubit (ng/µL)"]) > QUBIT_3SD_LIMIT:
                         styles[qubit_idx] = fail_cell_style
 
                 # Highlight the %CV in red for every sample that failed
@@ -1009,10 +905,7 @@ if ts_file_1 and qb_file_1:
                 # Keep the existing upper-limit highlighting
                 if qubit_idx != -1 and float(row["Raw Qubit (ng/µL)"]) > qubit_limit:
                     styles[qubit_idx] = upper_cell_style
-                if (
-                    tapestation_idx != -1
-                    and float(row["TapeStation % of Total"]) > ts_limit
-                ):
+                if tapestation_idx != -1 and float(row["TapeStation % of Total"]) > ts_limit:
                     styles[tapestation_idx] = upper_cell_style
                 if size_idx != -1 and float(row["Average Size [bp]"]) > 350.0:
                     styles[size_idx] = upper_cell_style
@@ -1072,9 +965,7 @@ if ts_file_1 and qb_file_1:
             else:
                 st.button("📜 Download Modification Trace Log", disabled=True)
 
-        st.success(
-            "✅ Output matrices and validation trace files generated successfully."
-        )
+        st.success("✅ Output matrices and validation trace files generated successfully.")
 
     # Broad catch is intentional: any problem with an uploaded file is shown
     # in the app instead of crashing it
